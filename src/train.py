@@ -94,10 +94,10 @@ def get_callbacks(train_config) -> List[Callback]:
 
     model_checkpoint_top = ModelCheckpoint(
         monitor='val_loss', mode = 'min', save_top_k=10,
-        dirpath='checkpoints/top_10', filename=ckpt_filename)
+        dirpath=f'checkpoints/{train_config["experiment_name"]}/top_10', filename=ckpt_filename)
 
     model_checkpoint_on_epoch_end = ModelCheckpoint(
-        save_on_train_epoch_end = True, dirpath='checkpoints/epoch_end/',
+        save_on_train_epoch_end = True, dirpath=f'checkpoints/{train_config["experiment_name"]}/epoch_end/',
         save_top_k=-1,
         filename=ckpt_filename)
     
