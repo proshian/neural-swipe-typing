@@ -1,4 +1,8 @@
 {
+    "experiment_name": "traj_and_weighted",
+    "swipe_feature_extractor_factory_config_path": "./configs/feature_extractor/traj_and_weights_v1.json",
+    "swipe_point_embedder_config_path": "./configs/swipe_point_embedder/separate_traj_and_weighted__6_coord.json",
+
     "num_classes": 35,
     "max_out_seq_len": 35,
     "grid_name": "default",
@@ -6,8 +10,6 @@
     "trajectory_features_statistics_path": "./data/data_preprocessed/trajectory_features_statistics.json",
     "bounding_boxes_path": "./data/data_preprocessed/key_bounding_boxes.json",
     "keyboard_tokenizer_path": "./tokenizers/keyboard/ru.json",
-    "swipe_feature_extractor_factory_config_path": "./configs/feature_extractor/traj_and_nearest.json",
-    "swipe_point_embedder_config_path": "./configs/swipe_point_embedder/separate_traj_and_nearest__6_coord.json",
     "dataset_paths": {
         "train": "./data/data_preprocessed/train_filtered.jsonl",
         "val": "./data/data_preprocessed/valid.jsonl"
