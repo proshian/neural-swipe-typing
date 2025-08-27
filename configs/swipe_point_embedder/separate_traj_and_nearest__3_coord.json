@@ -1,0 +1,10 @@
+{
+    "type": "separate_traj_and_nearest",
+    "params": {
+        "n_keys": 36,
+        "key_emb_size": 125,
+        "max_len": 299,
+        "device": "cuda",
+        "dropout": 0.1
+    }
+}
