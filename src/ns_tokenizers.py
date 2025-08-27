@@ -79,3 +79,6 @@ class KeyboardTokenizer:
 
     def get_all_non_special_token_ids(self) -> Set[int]:
         return set(self.get_token(lbl) for lbl in self.get_all_non_special_tokens())
+    
+    def __len__(self):
+        return len(self.label_to_idx)

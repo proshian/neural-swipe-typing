@@ -45,7 +45,7 @@ class DistanceGetter:
                  grid: dict,
                  tokenizer: KeyboardTokenizer,
                  missing_distance_val: float = float('inf'),
-                 device: torch.device = torch.device("cpu")):
+                 device: torch.device = torch.device("cpu")) -> None:
         """
         Arguments:
         ----------
@@ -57,7 +57,7 @@ class DistanceGetter:
         """
         self.device = device
         self.missing_distance_val = missing_distance_val
-        self.centers, self.mask = self._get_centers(grid, tokenizer) 
+        self.centers, self.mask = self._get_centers(grid, tokenizer)
 
     def _get_centers(self, grid: dict, 
                      tokenizer: KeyboardTokenizer
@@ -72,8 +72,7 @@ class DistanceGetter:
         """
         known_non_special_token_ids = tokenizer.get_all_non_special_token_ids()
         
-        max_token_id = max(known_non_special_token_ids)
-        centers = torch.empty((max_token_id + 1, 2),
+        centers = torch.empty((len(tokenizer), 2),
                              dtype=torch.float32,
                              device=self.device)
 
@@ -90,7 +89,7 @@ class DistanceGetter:
                 )
                 present_tokens.add(token)
 
-        mask = torch.ones((max_token_id + 1,), dtype=torch.bool, device=self.device)
+        mask = torch.ones((len(tokenizer),), dtype=torch.bool, device=self.device)
         mask[torch.tensor(list(present_tokens), device=self.device)] = False
 
         return centers, mask
