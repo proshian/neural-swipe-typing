@@ -11,6 +11,7 @@ from torch.nn.utils.rnn import pad_sequence
 
 from feature_extraction.swipe_feature_extractors import SwipeFeatureExtractor
 from ns_tokenizers import CharLevelTokenizerv2
+from torch_serialized_list import TorchSerializedList
 
 
 RawDatasetEl = Tuple[array.array, array.array, 
@@ -63,6 +64,9 @@ class SwipeDataset(Dataset):
         """
         self.data_list = self._get_data(
             data_path, total=total)
+        self.data_list = TorchSerializedList(
+            self._get_data(data_path, total=total)
+        )
         self.word_tokenizer = word_tokenizer
         self.grid_name_to_swipe_feature_extractor = grid_name_to_swipe_feature_extractor
         
