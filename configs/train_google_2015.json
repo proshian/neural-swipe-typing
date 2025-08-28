@@ -1,5 +1,5 @@
 {
-    "experiment_name": "indiswipe",
+    "experiment_name": "google_2015",
     "swipe_feature_extractor_factory_config_path": "./configs/feature_extractor/google_2015.json",
     "swipe_point_embedder_config_path": "./configs/swipe_point_embedder/separate_traj_and_nearest__3_coord.json",
 
