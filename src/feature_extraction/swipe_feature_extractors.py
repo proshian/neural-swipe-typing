@@ -143,6 +143,9 @@ class CoordinateFunctionFeatureExtractor:
                  cast_dtype: Optional[torch.dtype] = None
                  ) -> None:
         """
+        An adapter to make callables that accept stack(x, y) 
+        satisfy the SwipeFeatureExtractor interface.
+
         Arguments:
         ----------
         value_fn: Callable[[Tensor], Tensor]
