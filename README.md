@@ -135,10 +135,12 @@ You also need to add your keyboard layout to `grid_name_to_grid.json`
 
 <!-- Перед побучением необходимо очистить тренировочный датасет -->
 
-The training is done in [train.ipynb](src/train.ipynb)
+Use train.py with a train config. Example:
+```
+python -m src.train --train_config configs\train_traj_and_nearest.json
+```
 
-> [!WARNING]  
-> `train.ipynb` drains RAM when using `n_workers` > 0 in Dataloader. This can result in up to `dataset_size * n_workers` extra gigabytes of RAM usage. This is a known issue (see [here](https://github.com/pytorch/pytorch/issues/13246)) that happens when a dataset uses a list to store data. Although `torch.cuda.empty_cache()` can be used as a workaround, it doesn't seem to work with pytorch lightning. It appears I didn't commit this workaround, but you can adapt train.ipynb from [before-lightning branch](https://github.com/proshian/neuroswipe/tree/before-lightning) by adding ```torch.cuda.empty_cache()``` after each epoch to to avoid the issue. When training in a kaggle notebook, the issue is not a problem since a kaggle session comes with 30 Gb of RAM.  
+You can also use a [train_for_kaggle.ipynb](src/train_for_kaggle.ipynb) jupyter notebook (for example if you want to do the training in kaggle).
 
 
 ## Prediction
@@ -150,7 +152,7 @@ The training is done in [train.ipynb](src/train.ipynb)
 predict_v2.py usage example:
 
 ```
-python3.10 src/predict_v2.py --config configs/config__my_weighted_features.json --num-workers 0
+python src/predict_v2.py --config configs/config__my_weighted_features.json --num-workers 0
 ```
 
 > [!WARNING]  
