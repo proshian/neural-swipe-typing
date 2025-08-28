@@ -42,7 +42,7 @@ For in-depth insights, you can refer to my [master's thesis](https://drive.googl
 Install the dependencies:
 
 ```sh
-pip install -r requirements.txt
+pip install -r requirements/requirements.txt
 ```
 
 * The inference was tested with python 3.10
@@ -78,28 +78,44 @@ python ./data_obtaining_and_preprocessing/download_dataset_preprocessed.py
 
 ## Workflow Overview
 
-A trained model is defined not only by its class and weights but also by the dataset transformation used during training.
+Transducing swipes to a list of words involves multiple components
+
+* SwipeFeatureExtractor instance
+* neural network architecture
+    * swipe point embedder
+    * subword embedder
+    * encoder
+    * decoder
+* model weights
+* decoding algorithm
 
 
-All current models are instances of `model.EncoderDecoderTransformerLike` and consist of the following components:
-* Swipe point embedder
-* Word component token embedder (currently char-level)
-* Encoder
-* Decoder 
+### SwipeFeatureExtractor
+A `SwipeFeatureExtractor` is any callable that takes three integer 1d tensors (`x`, `y`, `t`) representing raw coordinates and time in milliseconds and returns a list of tensors that are inputs of a certain `SwipePointEmbedder`.
+Current implementations of this protocol:
+1. `TrajectoryFeatureExtractor`: Extracts trajectory features such as x, y, dt and coordinate derivatives.
+2. `CoordinateFunctionFeatureExtractor`: An adapter to make callables that accept `torch.stack(x, y)` satisfy the `SwipeFeatureExtractor` interface. Example of these coordinate feature extractors:
+    * `DistanceGetter` - for each swipe point returns the distance to the key centers
+    * `NearestKeyGetter` - for each swipe point returns the id of the nearest key center
+    * `KeyWeightsGetter` - for each swipe point returns the weights (importance) of the key by applying a function to the `DistanceGetter` output
+3. `MultiFeatureExtractor`: Combines multiple feature extractors into one.
 
-Transforms extract features from the raw dataset, converting each dataset item from the format `(x, y, t, grid_name, tgt_word)` to `(encoder_input, decoder_input), decoder_output`.
+
+### Feature extraction in the dataset
+`SwipeFeatureExtractor`s are used as a dataset transformation step to extract relevant features from the raw swipe data before feeding it into the model.
 
 After collating the dataset, the format becomes `(packed_model_in, dec_out)`, where `packed_model_in` is `(encoder_input, decoder_input, swipe_pad_mask, word_pad_mask)`. `packed_model_in` is passed to the model via unpacking (`model(*packed_model_in)`).
 
-* `encoder_input` is passed as the only argument to swipe_point_embedder’s forward. The type depends on which swipe point embedding layer you use. It can be a single object, a tuple of objects
+* `encoder_input` is a list of tensors (padded features from a `SwipeFeatureExtractor`)
 * `decoder_input` and `decoder_output` are `tokenized_target_word[1:]` and `tokenized_target_word[:-1]` correspondingly.
 
 
-A trained swipe decoding method is defined by
-* model class
-* model weights
-* dataset transformation
-* decoding algorithm
+### Model
+All current models are instances of `model.EncoderDecoderTransformerLike` and consist of the following components:
+* Swipe point embedder
+* Subword token embedder (currently char-level)
+* Encoder
+* Decoder
 
 
 
