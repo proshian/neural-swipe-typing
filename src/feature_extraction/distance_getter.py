@@ -50,7 +50,7 @@ class DistanceGetter:
         Arguments:
         ----------
         grid: dict
-        key_labels_of_interest: Optional[Set[str]]
+        tokenizer: KeyboardTokenizer
         missing_distance_val: float
             Value to fill for distances to keys that are not present in the grid.
             Defaults to +inf.
