@@ -166,10 +166,7 @@ class CollateFn:
         ----------
         batch: list of tuples:
             ((encoder_in, dec_in_char_seq), dec_out_char_seq),
-            where encoder_in may be a tuple of torch tensors
-            (ex. ```(traj_feats, nearest_kb_tokens)```)
-            or a single tensor (ex. ```nearest_kb_tokens```)
-
+            where encoder_in is a list of torch tensors
 
         Returns:
         --------
@@ -178,10 +175,10 @@ class CollateFn:
             where enc_in can be either a single tensor or a tuple
             of two tensors (depends on type of input)
             Each element is a torch tensor of shape:
-            - enc_in: list of tuples of tensors with shapes:
-                [(curve_len, batch_size, n_feats1), (curve_len, batch_size, n_feats2), ...]
+            - enc_in: list of tensors with shapes:
+                [(swipe_len, batch_size, n_feats1), (swipe_len, batch_size, n_feats2), ...]
             - dec_in: (chars_seq_len - 1, batch_size)
-            - swipe_pad_mask: (batch_size, curve_len)
+            - swipe_pad_mask: (batch_size, swipe_len)
             - word_pad_mask: (batch_size, chars_seq_len - 1)
         2. dec_out: torch tensor of shape (chars_seq_len - 1, batch_size)
         """
@@ -218,7 +215,7 @@ class CollateFn:
 
 
         encoder_in_el = encoder_inputs_padded[0]
-        max_curve_len = encoder_in_el.shape[1] if self.batch_first else encoder_in_el.shape[0]
+        max_swipe_len = encoder_in_el.shape[1] if self.batch_first else encoder_in_el.shape[0]
         encoder_inputs_single_feature_no_pad = encoder_inputs[0]
         encoder_input_lengths = torch.tensor(
             [len(x) for x in encoder_inputs_single_feature_no_pad])
@@ -227,13 +224,13 @@ class CollateFn:
 
         # Create mask where True indicates positions beyond a 
         # corresponding trajectory length.
-        # 1. Create index sequences [0,1,…max_curve_len-1] 
+        # 1. Create index sequences [0,1,…max_swipe_len-1] 
         #    for each batch element.
         # 2. Compare each index of each batch element 
         #    with the length of the corresponding trajectory.
-        # Shape: (batch_size, max_curve_len)
-        swipe_pad_mask = torch.arange(max_curve_len).expand(
-            batch_size, max_curve_len) >= encoder_input_lengths.unsqueeze(1)
+        # Shape: (batch_size, max_swipe_len)
+        swipe_pad_mask = torch.arange(max_swipe_len).expand(
+            batch_size, max_swipe_len) >= encoder_input_lengths.unsqueeze(1)
         
 
         transformer_in = (encoder_inputs_padded, 
