@@ -11,63 +11,67 @@ from model import EncoderDecoderTransformerLike
 from logit_processors import LogitProcessor
 
 
-def _prepare_encoder_input(encoder_in: Union[Tensor, Tuple[Tensor, Tensor]], 
+def _prepare_encoder_input(encoder_in: list[Tensor], 
                            device: str, batch_first: bool
                            ) -> Tuple[Tensor, Tensor]:
-    is_tensor = None
-    if isinstance(encoder_in, Tensor):
-        is_tensor = True
-        encoder_in = [encoder_in]
-    else:
-        is_tensor = False
-
     encoder_in = [el.unsqueeze(0 if batch_first else 1) for el in encoder_in]
     encoder_in = [el.to(device) for el in encoder_in]
+    return encoder_in
 
-    return encoder_in[0] if is_tensor else encoder_in
 
-
-def move_encoder_in_to_device(encoder_in: Union[Tensor, Tuple[Tensor, Tensor]], 
-                              device: str) -> Tuple[Tensor, Tensor]:
-    if isinstance(encoder_in, Tensor):
-        return encoder_in.to(device)
-    return tuple(el.to(device) for el in encoder_in)
+def move_encoder_in_to_device(encoder_in: list[Tensor], 
+                              device: str) -> list[Tensor]:
+    return [el.to(device) for el in encoder_in]
 
 
 class WordGenerator(ABC):
-    def __init__(self, model: EncoderDecoderTransformerLike, 
-                 tokenizer: CharLevelTokenizerv2, device,
-                 logit_processor: Optional[LogitProcessor] = None):
+    def __init__(
+        self,
+        model: EncoderDecoderTransformerLike,
+        tokenizer: CharLevelTokenizerv2,
+        device,
+        logit_processor: Optional[LogitProcessor] = None,
+    ):
         self.model = model
         self.tokenizer = tokenizer
         self.device = torch.device(device)
         self.model.to(self.device)
         self.eos_token_id = tokenizer.char_to_idx['<eos>']
         self.logit_processor = logit_processor
-    
+
     def switch_model(self, model: EncoderDecoderTransformerLike):
         self.model = model
 
     @abstractmethod
-    def __call__(self, xyt, kb_tokens, max_steps_n, 
-                 *args, **kwargs) -> List[Tuple[float, str]]:
+    def __call__(self, swipe_features: List[Tensor]) -> List[Tuple[float, str]]:
         pass
 
 
 
 class GreedyGenerator(WordGenerator):
+    def __init__(
+        self,
+        model: EncoderDecoderTransformerLike,
+        tokenizer: CharLevelTokenizerv2,
+        device,
+        logit_processor: Optional[LogitProcessor] = None,
+        max_steps_n: int = 35,
+    ):
+        super().__init__(model, tokenizer, device, logit_processor)
+        self.max_steps_n = max_steps_n
+
     @torch.inference_mode()
-    def _generate(self, encoder_in, max_steps_n=35) -> List[Tuple[float, str]]:
+    def _generate(self, swipe_features: List[Tensor]) -> List[Tuple[float, str]]:
         BATCH_SIZE_DIM = 1
         tokens = [self.tokenizer.char_to_idx['<sos>']]
         log_prob = 0.0
-        
-        encoder_in = _prepare_encoder_input(encoder_in, self.device, False)
-        encoded = self.model.encode(encoder_in, None)
 
-        for _ in range(max_steps_n):
-            dec_in_char_seq = torch.tensor(tokens).unsqueeze_(BATCH_SIZE_DIM)
-            next_tokens_logits: torch.Tensor = self.model.decode(
+        swipe_features = _prepare_encoder_input(swipe_features, self.device, False)
+        encoded = self.model.encode(swipe_features, None)
+
+        for _ in range(self.max_steps_n):
+            dec_in_char_seq = torch.tensor(tokens, device=self.device).unsqueeze_(BATCH_SIZE_DIM)
+            next_tokens_logits: Tensor = self.model.decode(
                 dec_in_char_seq, encoded, None, None).squeeze_(BATCH_SIZE_DIM)[-1]
             if self.logit_processor:
                 next_tokens_logits = self.logit_processor.process(
@@ -82,30 +86,44 @@ class GreedyGenerator(WordGenerator):
 
         return [(-log_prob, self.tokenizer.decode(tokens[1:-1]))]
 
-    def __call__(self, encoder_in, max_steps_n=35) -> List[Tuple[float, str]]:
-        return self._generate(encoder_in, max_steps_n)
+    def __call__(self, encoder_in) -> List[Tuple[float, str]]:
+        return self._generate(encoder_in)
     
-    def generate_word_only(self, encoder_in, max_steps_n=35) -> str:
-        return self._generate(encoder_in, max_steps_n)[0][1]
+    def generate_word_only(self, encoder_in) -> str:
+        return self._generate(encoder_in)[0][1]
+
 
 
 
 class BeamGenerator(WordGenerator):
-    @torch.inference_mode()
-    def __call__(self,
-                 encoder_in,
-                 max_steps_n=35,  # max tokens in a seq
-                 return_hypotheses_n: Optional[int] = None,  # n best hypothesis to return
-                 beamsize=6,  # n best solutions we store in intermidiate comuptations
-                 normalization_factor=0.5,
-                 ) -> List[Tuple[float, str]]:
+    def __init__(
+        self,
+        model: EncoderDecoderTransformerLike,
+        tokenizer: CharLevelTokenizerv2,
+        device,
+        logit_processor: Optional[LogitProcessor] = None,
+        max_steps_n: int = 35,
+        beamsize: int = 6,
+        normalization_factor: float = 0.5,
+        return_hypotheses_n: Optional[int] = None,
+    ) -> None:
         """
         Arguments:
         ----------
         return_hypotheses_n: Optional[int]
             return_hypotheses_n: Number of best hypotheses to return. If None,
             returns all found hypotheses.
+        """
+        super().__init__(model, tokenizer, device, logit_processor)
+        self.max_steps_n = max_steps_n
+        self.beamsize = beamsize
+        self.normalization_factor = normalization_factor
+        self.return_hypotheses_n = return_hypotheses_n
 
+    @torch.inference_mode()
+    def __call__(self,
+                 encoder_in) -> List[Tuple[float, str]]:
+        """
         Returns:
         --------
         List of tuples (score, text), where:
@@ -135,7 +153,7 @@ class BeamGenerator(WordGenerator):
             cur_partial_score, cur_partial_hypothesis = heapq.heappop(partial_hypotheses)
 
 
-            dec_in_char_seq = torch.tensor(cur_partial_hypothesis).reshape(-1, 1).to(self.device)  # (chars_seq_len, batch_size)
+            dec_in_char_seq = torch.tensor(cur_partial_hypothesis, device=self.device).reshape(-1, 1)  # (chars_seq_len, batch_size)
             # word_pad_mask = torch.zeros_like(dec_in_char_seq, dtype=torch.bool, device=self.device).transpose_(0,1)
             word_pad_mask = None
             curve_pad_mask = None
@@ -147,7 +165,7 @@ class BeamGenerator(WordGenerator):
                 next_tokens_logits = self.logit_processor.process(
                     next_tokens_logits, cur_partial_hypothesis)
             next_tokens_logproba = F.log_softmax(next_tokens_logits, dim=-1)
-            topk_continuations = next_tokens_logproba.topk(beamsize)
+            topk_continuations = next_tokens_logproba.topk(self.beamsize)
 
             for token_score, token_idx in zip(topk_continuations.values, topk_continuations.indices):
                 # Convert tesors to loat and int to avoid memory leakage.
@@ -167,19 +185,19 @@ class BeamGenerator(WordGenerator):
 
                 # score - нормализованная разность log_softmax всех токенов.
                 # Разность, а не сумма, потому что heapq - мин-куча. 
-                old_denorm_score = cur_partial_score * len(cur_partial_hypothesis)**normalization_factor
-                new_score = (old_denorm_score - token_score) / (len(cur_partial_hypothesis) + 1)**normalization_factor
+                old_denorm_score = cur_partial_score * len(cur_partial_hypothesis)**self.normalization_factor
+                new_score = (old_denorm_score - token_score) / (len(cur_partial_hypothesis) + 1)**self.normalization_factor
 
                 new_hypothesis = cur_partial_hypothesis + [token_idx]
                 new_item = (new_score, new_hypothesis)
 
-                if token_idx == self.eos_token_id or len(new_hypothesis) - initial_length >= max_steps_n:
+                if token_idx == self.eos_token_id or len(new_hypothesis) - initial_length >= self.max_steps_n:
                     final_hypotheses.append(new_item)
                 else:
                     heapq.heappush(partial_hypotheses, new_item)
 
-            if len(partial_hypotheses) > beamsize:
-                partial_hypotheses = heapq.nsmallest(beamsize, partial_hypotheses)
+            if len(partial_hypotheses) > self.beamsize:
+                partial_hypotheses = heapq.nsmallest(self.beamsize, partial_hypotheses)
                 heapq.heapify(partial_hypotheses)
 
         final_scores, final_token_lists = zip(*final_hypotheses)
@@ -187,7 +205,7 @@ class BeamGenerator(WordGenerator):
         result = list(zip(final_scores, final_texts))
         result.sort()
 
-        return result if return_hypotheses_n is None else result[:return_hypotheses_n]
+        return result if self.return_hypotheses_n is None else result[:self.return_hypotheses_n]
 
 
 
@@ -199,15 +217,25 @@ class BeamGenerator(WordGenerator):
 # GreedyGeneratorBatched Cons:
 # * Doesn't support vocab masking yet
 # * Has a different interface
-class GreedyGeneratorBatched(WordGenerator):    
+class GreedyGeneratorBatched(WordGenerator):
+    def __init__(
+        self,
+        model: EncoderDecoderTransformerLike,
+        tokenizer: CharLevelTokenizerv2,
+        device,
+        logit_processor: Optional[LogitProcessor] = None,
+        max_steps_n: int = 35,
+    ):
+        super().__init__(model, tokenizer, device, logit_processor)
+        self.max_steps_n = max_steps_n
+
     @torch.inference_mode()
-    def _generate(self, encoder_in, encoder_in_pad_mask: torch.Tensor, 
-                  max_steps_n=35) -> List[Tuple[float, str]]:
+    def _generate(self, encoder_in: Tensor, encoder_in_pad_mask: Tensor) -> List[Tuple[float, str]]:
         # We suppose that BATCH_FIRST is False. Note that setting `BATCH_FIRST`
         # to True won't be the only step to make the code 
         # work with a model that expects batch_first data.
         BATCH_FIRST = False 
-        batch_size_dim = 0 if BATCH_FIRST else 1
+        # batch_size_dim = 0 if BATCH_FIRST else 1
         char_seq_len_dim = 1 if BATCH_FIRST else 0
         batch_size = encoder_in_pad_mask.size(0)  # mask is always batch_first
         dec_in_token_ids = torch.full((1, batch_size,), self.tokenizer.char_to_idx['<sos>'],
@@ -218,10 +246,10 @@ class GreedyGeneratorBatched(WordGenerator):
         pad_token_id = self.tokenizer.char_to_idx['<pad>']
       
         encoder_in = move_encoder_in_to_device(encoder_in, self.device)
-        encoder_in_pad_mask.to(self.device)
+        encoder_in_pad_mask = encoder_in_pad_mask.to(self.device)
         encoded = self.model.encode(encoder_in, encoder_in_pad_mask)
 
-        for _ in range(max_steps_n):
+        for _ in range(self.max_steps_n):
             # decoder_output.shape = char_seq_len x batch_size x n_tokens
 
             tgt_pad_mask = (dec_in_token_ids == pad_token_id).T
@@ -254,8 +282,8 @@ class GreedyGeneratorBatched(WordGenerator):
 
         return dec_in_token_ids, log_probs
 
-    def __call__(self, encoder_in, encoder_in_pad_mask, max_steps_n=35) -> List[Tuple[float, str]]:
-        return self._generate(encoder_in, encoder_in_pad_mask, max_steps_n)
+    def __call__(self, encoder_in, encoder_in_pad_mask) -> List[Tuple[float, str]]:
+        return self._generate(encoder_in, encoder_in_pad_mask)
 
 
 
