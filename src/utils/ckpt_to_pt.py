@@ -49,10 +49,14 @@ def convert_and_save_dir(ckpt_root: str, out_root: str,
             convert_and_save_file(ckpt_path, out_path, device)
 
 
-def convert_and_save_file(ckpt_path: str, out_path: str, 
-                          device: torch.device) -> None:
-    ckpt = torch.load(ckpt_path, map_location=device)
+def convert_and_save_file(ckpt_path: str, 
+                          out_path: str, 
+                          device: torch.device, 
+                          make_dir_if_absent: bool = False) -> None:
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     state_dict = ckpt_to_torch_state(ckpt)
+    if make_dir_if_absent and not os.path.exists(os.path.dirname(out_path)):
+        os.makedirs(os.path.dirname(out_path))
     torch.save(state_dict, out_path)
 
 

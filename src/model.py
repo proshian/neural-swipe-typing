@@ -189,7 +189,7 @@ def _set_state(model: nn.Module,
     """
     if weights_path:
         model.load_state_dict(
-            torch.load(weights_path, map_location=device))
+            torch.load(weights_path, map_location=device, weights_only=True))
     model = model.to(device)
     model = model.eval()
     return model
