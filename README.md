@@ -118,6 +118,19 @@ All current models are instances of `model.EncoderDecoderTransformerLike` and co
 * Decoder
 
 
+### WordGenerator
+
+A WordGenerator receives the encoded swipe features for a swipe and outputs 
+a sorted list of scored word candidates (list of tuples (word: str, score: float)).
+
+A WordGenerator stores:
+* A model (`EncoderDecoderTransformerLike`) that processes the encoded swipe features
+* A subword_tokenizer (`CharLevelTokenizerv2`) that converts characters to tokens and vice versa
+* A logit processor (`LogitProcessor`) that manipulates the model's output logits. Currently `VocabularyLogitProcessor` is used to apply vocabulary-based masking and make it impossible for the model to generate the tokens outside the vocabulary
+* Hyperparameters specific to a particular word generator
+
+
+Currently, word generators accept non batched swipe features (process one swipe at a time).
 
 ## Your Custom Dataset
 
