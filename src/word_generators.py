@@ -286,8 +286,18 @@ class GreedyGeneratorBatched(WordGenerator):
         return self._generate(encoder_in, encoder_in_pad_mask)
 
 
-
-GENERATOR_CTORS_DICT = {
-    "greedy": GreedyGenerator,
-    "beam": BeamGenerator
-}
+def generator_factory(generator_name: str,
+                      model: EncoderDecoderTransformerLike,
+                      subword_tokenizer: CharLevelTokenizerv2,
+                      device: str,
+                      logit_processor: Optional[LogitProcessor] = None,
+                      generator_params: Optional[dict] = None
+                      ) -> WordGenerator:
+    if generator_params is None:
+        generator_params = {}
+    if generator_name == 'greedy':
+        return GreedyGenerator(model, subword_tokenizer, device, logit_processor, **generator_params)
+    elif generator_name == 'beam':
+        return BeamGenerator(model, subword_tokenizer, device, logit_processor, **generator_params)
+    else:
+        raise ValueError(f"Unknown generator: {generator_name}")
