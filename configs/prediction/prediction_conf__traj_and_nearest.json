@@ -3,8 +3,8 @@
     "swipe_feature_extractor_factory_config_path": "./configs/feature_extractor/traj_and_nearest.json",
     "swipe_point_embedder_config_path": "./configs/swipe_point_embedder/separate_traj_and_nearest__6_coord.json",
  
-    "model_weights_path": "./checkpoints/traj_and_nearest/top_10/v3_nearest_and_traj_transformer_bigger-default--epoch=73-val_loss=0.440-val_word_level_accuracy=0.870.pt",
-    "output_path": "./results/predictions/traj_and_nearest/default/val/v3_nearest_and_traj_transformer_bigger-default--epoch=73-val_loss=0.440-val_word_level_accuracy=0.870.pt.pkl",
+    "model_weights_path": "./model_states/traj_and_nearest/epoch_end/v3_nearest_and_traj_transformer_bigger-default--epoch=36-val_loss=0.441-val_word_level_accuracy=0.872.pt",
+    "output_path": "./results/predictions/traj_and_nearest/default/val/v3_nearest_and_traj_transformer_bigger-default--epoch=36-val_loss=0.441-val_word_level_accuracy=0.872.pt.pkl",
 
     "device": "cuda",
     "data_path": "./data/data_preprocessed/valid.jsonl",

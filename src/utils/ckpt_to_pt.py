@@ -1,3 +1,5 @@
+import sys; import os; sys.path.insert(1, os.path.join(os.getcwd(), "src"))
+
 from typing import Dict, Any
 import argparse
 import os

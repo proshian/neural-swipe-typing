@@ -1,3 +1,5 @@
+import sys; import os; sys.path.insert(1, os.path.join(os.getcwd(), "src"))
+
 import argparse
 import json
 import os
@@ -122,7 +124,8 @@ def leave_one_pred_per_curve(preds):
 def evaluate(prediction_path: str, config: dict) -> None:
     prediction_result = read_prediction(prediction_path)
     grid_name = prediction_result.config.get("grid_name")
-    labels = get_labels_from_ds_path(config['data_path'], grid_name)
+    data_path = prediction_result.config['data_path']
+    labels = get_labels_from_ds_path(data_path, grid_name)
     preds = scored_preds_to_raw_preds(prediction_result.predictions)
 
     assert len(preds) == len(labels), f"Length mismatch: {len(preds)} vs {len(labels)}"

@@ -150,13 +150,18 @@ You also need to add your keyboard layout to `grid_name_to_grid.json`
 
 Use train.py with a train config. Example:
 ```
-python -m src.train --train_config configs\train_traj_and_nearest.json
+python -m src.train --train_config configs/train/train_traj_and_nearest.json
 ```
 
-You can also use a [train_for_kaggle.ipynb](src/train_for_kaggle.ipynb) jupyter notebook (for example if you want to do the training in kaggle).
+You can also use as [train_for_kaggle.ipynb](src/train_for_kaggle.ipynb) jupyter notebook (for example if you want to do the training in kaggle).
 
 
 ## Prediction
+
+You may want to extract model states from checkpoints using the provided `ckpt_to_pt.py` script.
+```
+python -m src.utils.ckpt_to_pt --ckpt-path checkpoints --out-path model_states
+```
 
 [word_generation_demo.ipynb](src/word_generation_demo.ipynb) serves as an example on how to predict via a trained model.
 
@@ -165,12 +170,8 @@ You can also use a [train_for_kaggle.ipynb](src/train_for_kaggle.ipynb) jupyter 
 predict_v2.py usage example:
 
 ```
-python src/predict_v2.py --config configs/config__my_weighted_features.json --num-workers 0
+python src/predict.py --config configs/prediction/prediction_conf__traj_and_nearest.json
 ```
-
-> [!WARNING]  
-> If the decoding algorithm in `predict_v2.py` script utilizes a vocabulary for masking (if `use_vocab_for_generation: true` in the config), it is necessary to disable multiprocessing by passing the command-line argument `--num-workers 0` to the script. Otherwise, the prediction will take a long time. It's a bug that will be fixed
-
 
 
 ## Yandex cup 2023 results

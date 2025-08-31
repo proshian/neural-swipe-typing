@@ -41,6 +41,7 @@ class SwipeDataset(Dataset):
                  data_path: str,
                  word_tokenizer: CharLevelTokenizerv2,
                  grid_name_to_swipe_feature_extractor: Dict[str, SwipeFeatureExtractor],
+                 use_serialized_list: bool = True,
                  total: Optional[int] = None):
         """
         Arguments:
@@ -62,11 +63,13 @@ class SwipeDataset(Dataset):
         total: Optional[int]
             Number of dataset elements. Is used only for progress bar.
         """
+        self.use_serialized_list = use_serialized_list
         self.data_list = self._get_data(
             data_path, total=total)
-        self.data_list = TorchSerializedList(
-            self._get_data(data_path, total=total)
-        )
+        if use_serialized_list:
+            self.data_list = TorchSerializedList(
+                self.data_list
+            )
         self.word_tokenizer = word_tokenizer
         self.grid_name_to_swipe_feature_extractor = grid_name_to_swipe_feature_extractor
         
