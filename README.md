@@ -149,7 +149,7 @@ You also need to add your keyboard layout to `grid_name_to_grid.json`
 <!-- Перед побучением необходимо очистить тренировочный датасет -->
 
 Use train.py with a train config. Example:
-```
+```sh
 python -m src.train --train_config configs/train/train_traj_and_nearest.json
 ```
 
@@ -159,20 +159,35 @@ You can also use as [train_for_kaggle.ipynb](src/train_for_kaggle.ipynb) jupyter
 ## Prediction
 
 You may want to extract model states from checkpoints using the provided `ckpt_to_pt.py` script.
-```
+```sh
 python -m src.utils.ckpt_to_pt --ckpt-path checkpoints --out-path model_states
 ```
 
 [word_generation_demo.ipynb](src/word_generation_demo.ipynb) serves as an example on how to predict via a trained model.
 
-[predict_v2.py](src/predict_v2.py) is used to obtain word candidates for a whole dataset and pickle them
+[predict.py](src/predict.py) is used to obtain word candidates for a whole dataset and pickle them
 
-predict_v2.py usage example:
+predict.py usage example:
 
+```sh
+python src/predict.py --config configs/prediction/prediction_conf__traj_and_nearest.json --num-workers 4
 ```
-python src/predict.py --config configs/prediction/prediction_conf__traj_and_nearest.json
+
+```sh
+python -m src.predict_all_epochs --config configs/prediction/prediction_conf__traj_and_nearest.json  --num-workers 4
 ```
 
+## Evaluation
+
+```sh
+python -m src.evaluate --config configs/config_evaluation.json
+```
+
+## Plot metrics
+
+```sh
+python -m src.plot_metrics --csv results/evaluation_results.csv --metrics accuracy mmr --output_dir results/plots
+```
 
 ## Yandex cup 2023 results
 * [task](./docs_and_assets/yandex_cup/task/task.md)
