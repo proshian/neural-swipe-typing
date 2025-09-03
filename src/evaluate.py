@@ -5,7 +5,7 @@ import json
 import os
 import pickle
 import re
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 
 import pandas as pd
 from tqdm import tqdm
@@ -13,6 +13,17 @@ from tqdm import tqdm
 from predict import PredictionResult
 from metrics import get_mmr, get_accuracy
 
+COLUMN_ORDER = [
+    "experiment_name",
+    "epoch",
+    "mmr",
+    "accuracy",
+    "grid_name",
+    "generator",
+    "use_vocab_for_generation",
+    "data_split",
+    "model_weights_file",
+]
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
@@ -63,41 +74,50 @@ def extract_epoch_from_path(path: str) -> int:
 
 
 def is_result_in_df(df: pd.DataFrame, result: dict) -> bool:
-    result_df = pd.DataFrame([result])
-    merged_df = df.merge(result_df, on=list(df.columns), how='inner')
-    return not merged_df.empty
+    # Check using all columns except metrics to ensure complete configuration match
+    METRIC_COLUMNS = ['accuracy', 'mmr']
+    config_columns = [col for col in COLUMN_ORDER if col not in METRIC_COLUMNS]
+    result_series = pd.Series({col: str(result.get(col)) for col in config_columns})
+    return (df[config_columns].astype(str) == result_series).all(axis=1).any()
+
+
+def get_result_dict(prediction_result: PredictionResult, metrics_dict: Optional[Dict[str, float]] = None) -> dict:
+    """Extracts the result dictionary from a prediction without computing metrics."""
+    config = prediction_result.config
+    generator_config = json.dumps(config['generator'])
+    
+    experiment_configuration_dict = {
+        "experiment_name": config["experiment_name"],
+        "epoch": extract_epoch_from_path(config["model_weights_path"]),
+        "grid_name": config["grid_name"],
+        "generator": generator_config,
+        "use_vocab_for_generation": config["use_vocab_for_generation"],
+        "data_split": os.path.basename(config["data_path"]),
+        "model_weights_file": os.path.basename(config["model_weights_path"]),
+    }
+
+    metrics_dict = metrics_dict or {"accuracy": None, "mmr": None}
+
+    return {**experiment_configuration_dict, **metrics_dict}
 
 
 def save_results(prediction_result: PredictionResult, metrics: Dict[str, float], out_path: str) -> None:
     """
     Appends the evaluation result of a single prediction file to the output CSV.
-    Checks for duplicates before writing.
+    Ensures consistent column order using COLUMN_ORDER.
     """
-    config = prediction_result.config
-
-    generator_config = json.dumps(config['generator'])
+    result_dict = get_result_dict(prediction_result, metrics)
+    df_line = pd.DataFrame([result_dict])[COLUMN_ORDER]
     
-    result_dict = {
-        "experiment_name": config.get("experiment_name"),
-        "epoch": extract_epoch_from_path(config.get("model_weights_path", "")),
-        "mmr": metrics.get('mmr'),
-        "accuracy": metrics.get('accuracy'),
-        "grid_name": config.get("grid_name"),
-        "generator": generator_config,
-        "use_vocab_for_generation": config["use_vocab_for_generation"],
-        "data_split": os.path.basename(config["data_path"]),
-        "model_weights_file": os.path.basename(config.get("model_weights_path", "")),
-    }
-
-    df_line = pd.DataFrame([result_dict])
-
     if not os.path.exists(out_path):
         df_line.to_csv(out_path, index=False)
-    else:
-        df = pd.read_csv(out_path)
-        # Convert columns to object type to avoid dtype issues during check
-        if not is_result_in_df(df.astype(object), result_dict):
-            df_line.to_csv(out_path, mode='a', header=False, index=False)
+        return
+    
+    existing_df = pd.read_csv(out_path).reindex(columns=COLUMN_ORDER)
+    
+    if not is_result_in_df(existing_df, result_dict):
+        combined_df = pd.concat([existing_df, df_line], ignore_index=True)
+        combined_df.to_csv(out_path, index=False)
 
 
 def find_prediction_files(prediction_paths: List[str]) -> List[str]:
@@ -125,7 +145,7 @@ def evaluate(prediction_path: str, config: dict) -> None:
     prediction_result = read_prediction(prediction_path)
     grid_name = prediction_result.config.get("grid_name")
     data_path = prediction_result.config['data_path']
-    labels = get_labels_from_ds_path(data_path, grid_name)
+    labels = get_labels_from_ds_path(data_path, [grid_name])
     preds = scored_preds_to_raw_preds(prediction_result.predictions)
 
     assert len(preds) == len(labels), f"Length mismatch: {len(preds)} vs {len(labels)}"
@@ -137,6 +157,26 @@ def evaluate(prediction_path: str, config: dict) -> None:
     save_results(prediction_result, metrics, config['output_csv_path'])
 
 
+def filter_already_evaluated_files(prediction_file_paths: List[str], output_csv_path: str) -> List[str]:
+    """Filters out prediction files that have already been evaluated."""
+    if not os.path.exists(output_csv_path):
+        return prediction_file_paths
+    
+    existing_results_df = pd.read_csv(output_csv_path)
+    existing_results_df = existing_results_df.reindex(columns=COLUMN_ORDER, fill_value=pd.NA)
+    
+    unevaluated_files = []
+    
+    for prediction_path in tqdm(prediction_file_paths, desc="Checking for already evaluated files"):
+        prediction_result = read_prediction(prediction_path)
+        result_dict = get_result_dict(prediction_result, metrics_dict=None)
+        
+        if not is_result_in_df(existing_results_df, result_dict):
+            unevaluated_files.append(prediction_path)
+
+    return unevaluated_files
+
+
 if __name__ == "__main__":
     config = get_config()
     prediction_file_paths = find_prediction_files(config['prediction_paths'])
@@ -146,7 +186,11 @@ if __name__ == "__main__":
     
     os.makedirs(os.path.dirname(config['output_csv_path']), exist_ok=True)
     
-    for prediction_path in tqdm(prediction_file_paths, desc="Evaluating prediction files"):
+    unevaluated_files = filter_already_evaluated_files(prediction_file_paths, config['output_csv_path'])
+    
+    print(f"Found {len(prediction_file_paths)} prediction files, {len(unevaluated_files)} need evaluation")
+    
+    for prediction_path in tqdm(unevaluated_files, desc="Evaluating prediction files"):
         evaluate(prediction_path, config)
 
     print(f"\nEvaluation finished. Results saved to {config['output_csv_path']}")
