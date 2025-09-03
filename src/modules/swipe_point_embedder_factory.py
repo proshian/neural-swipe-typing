@@ -1,4 +1,6 @@
-import torch.nn as nn
+from typing import Union
+
+import torch
 
 from modules.swipe_point_embedders import (NearestEmbeddingWithPos,
                                            SeparateTrajAndWEightedEmbeddingWithPos,
@@ -9,8 +11,9 @@ from feature_extraction.normalizers import MinMaxNormalizer
 
 
 def swipe_point_embedder_factory(
-    config: dict
-) -> nn.Module:
+    config: dict,
+    device: Union[torch.device, str]
+) -> torch.nn.Module:
     """
     Factory function to create a swipe point embedder based on the configuration.
     
@@ -31,7 +34,7 @@ def swipe_point_embedder_factory(
             params['n_keys'],
             params['key_emb_size'],
             params['max_len'],
-            params['device'],
+            device,
             params['dropout']
         )
     
@@ -40,7 +43,7 @@ def swipe_point_embedder_factory(
             params['n_keys'],
             params['key_emb_size'],
             params['max_len'],
-            params['device'],
+            device,
             params['dropout']
         )
     
@@ -49,7 +52,7 @@ def swipe_point_embedder_factory(
             params['n_keys'],
             params['key_emb_size'],
             params['max_len'],
-            params['device'],
+            device,
             params['dropout']
         )
     
@@ -76,7 +79,7 @@ def swipe_point_embedder_factory(
             params['n_keys'],
             params['key_emb_size'],
             params['max_len'],
-            params['device'],
+            device,
             params['dropout'],
             key_centers
         )
