@@ -1,4 +1,4 @@
-# Neural glide typing
+# Neural Swipe Typing
 
 A transformer neural network for a gesture keyboard that transduces curves swiped across a keyboard into word candidates
 
@@ -24,7 +24,12 @@ Try out a live demo with a trained model from the competition through this [web 
 > The website may take a minute to load, as it is not yet fully optimized. If you encounter a "Something went wrong" page, try refreshing the page. This usually resolves the issue.
 
 > [!NOTE]  
-> The model is an old and underfit legacy transformer variation (m1_bigger in models.py) that was used in the competition. A significant update is planned for both this project and the web app, but it will happen in winter 2024 
+> It is not guaranteed that the model used in the demo is up-to-date with the latest improvements in this repository. 
+
+## Android Library
+
+There is an [Android library](https://github.com/proshian/neural-swipe-keyboard-android) that aims to help to integrate models from this repository into android keyboards
+The library expects that the model is exported via executorch (as in `executorch_investigation` branch of this repository)
 
 ## Report
 
@@ -45,10 +50,7 @@ Install the dependencies:
 pip install -r requirements/requirements.txt
 ```
 
-* The inference was tested with python 3.10
-* The training was conducted in kaggle using Tesla P100
-
-
+* The code has been tested with python 3.10, 3.11 and 3.12
 
 ## Yandex Cup Dataset: Obtaining and Preparation
 
@@ -134,19 +136,30 @@ Currently, word generators accept non batched swipe features (process one swipe 
 
 ## Your Custom Dataset
 
-Your custom dataset must have items of format: `tuple(x, y, t, grid_name, tgt_word)`. These raw features won't be used but there are transforms defined in `feature_extractors.py` corresponding to every type of `swipe point embedding layer` that extract the needed features. You can apply these transforms in your dataset's `__init__` method or in `__get_item__` / `__iter__`. The data formats after transform and after collation are described above
+The Dataset class expects a jsonl file with the following structure:
 
-You also need to add your keyboard layout to `grid_name_to_grid.json`
+```json
+[
+    {
+        "word":"на",
+        "curve":{
+            "x":[567,567,507, ...],
+            "y":[66,66,101, ...],
+            "t":[0,3,24, ...],
+            "grid_name":"your_keyboard_layout_name"}
+    },
+    ...
+]
+```
 
-<!--
+You also need to add your keyboard layout to `grid_name_to_grid.json` and provide a tokenizer config (see the example in `tokenizers\keyboard\ru.json`)
 
-**TODO: Add info on how exactly the dataset should be integrated** 
+You may want to clean the data from outliers and errors  using `src\data_obtaining_and_preprocessing\filter_dataset.py`
 
--->
+<!-- **TODO: This section needs more details.** -->
 
 ## Training
 
-<!-- Перед побучением необходимо очистить тренировочный датасет -->
 
 Use train.py with a train config. Example:
 ```sh
@@ -176,6 +189,9 @@ python src/predict.py --config configs/prediction/prediction_conf__traj_and_near
 ```sh
 python -m src.predict_all_epochs --config configs/prediction/prediction_conf__traj_and_nearest.json  --num-workers 4
 ```
+
+>[!Tip]
+> On some systems you may find that multiprocessing with `num_workers > 0` is slower than `num_workers = 0`. Try both options to see which one works better for you.
 
 ## Evaluation
 
