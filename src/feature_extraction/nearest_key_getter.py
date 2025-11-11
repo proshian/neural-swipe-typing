@@ -1,5 +1,3 @@
-from typing import Set, Optional
-
 from torch import Tensor
 
 from .distance_getter import DistanceGetter

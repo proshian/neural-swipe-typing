@@ -1,4 +1,3 @@
-from typing import Optional, Set
 from collections.abc import Callable
 
 import torch
