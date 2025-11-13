@@ -1,0 +1,9 @@
+{
+    "type": "separate_traj_and_weighted",
+    "params": {
+        "n_keys": 36,
+        "key_emb_size": 122,
+        "max_len": 299,
+        "dropout": 0.1
+    }
+}

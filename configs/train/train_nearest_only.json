@@ -1,0 +1,44 @@
+{
+    "experiment_name": "nearest_only",
+    "swipe_feature_extractor_factory_config_path": "./configs/feature_extractor/nearest_key.json",
+    "swipe_point_embedder_config_path": "./configs/swipe_point_embedder/nearest.json",
+
+    "num_classes": 35,
+    "max_out_seq_len": 35,
+    "grid_name": "default",
+    "grids_path": "./data/data_preprocessed/gridname_to_grid.json",
+    "trajectory_features_statistics_path": "./data/data_preprocessed/trajectory_features_statistics.json",
+    "bounding_boxes_path": "./data/data_preprocessed/key_bounding_boxes.json",
+    "keyboard_tokenizer_path": "./tokenizers/keyboard/ru.json",
+    "dataset_paths": {
+        "train": "./data/data_preprocessed/train_filtered.jsonl",
+        "val": "./data/data_preprocessed/valid.jsonl"
+    },
+    "dataloader_num_workers": 4,
+    "train_batch_size": 256,
+    "val_batch_size": 512,
+    "vocab_path": "./data/data_preprocessed/voc.txt",
+    "train_total": 5591814,
+    "val_total": 10000,
+    "seed": 42,
+    "early_stopping": {
+        "enabled": false,
+        "patience": 30
+    },
+    "lr_scheduler": {
+        "type": "ReduceLROnPlateau",
+        "params": {
+            "factor": 0.5,
+            "patience": 8
+        }
+    },
+    "path_to_continue_checkpoint": null,
+    "model_name": "v3_nearest_and_traj_transformer_bigger",
+    "label_smoothing": 0.045,
+    "optimizer": {
+        "type": "Adam",
+        "params": {"lr":1e-4, "weight_decay":0}
+    },
+    "val_check_interval": 3000,
+    "device": "cuda"
+}

@@ -1,3 +1,4 @@
+/key_bounding_boxes.json
 /gridname_to_grid.json
 /gridname_to_grid__fixed.json
 /info.txt
@@ -23,4 +24,5 @@
 /test_pred_2023_11_07__02_25_25.pkl
 /weights_fname_to_mrr.pkl
 /med_getter.pkl
+/trajectory_features_statistics.json
 /test_raw_pred___best_model__2023_11_04__18_31_37__0.02530_default_switch_2.pt__best_model__2023_11_05__07_55_13__0.02516_extra_switch_2__with_pad_cutting.pt.pkl

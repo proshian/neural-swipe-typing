@@ -1,0 +1,25 @@
+[
+    {
+        "type": "trajectory",
+        "params": {
+            "include_dt": false,
+            "include_velocities": true,
+            "include_accelerations": true
+        }
+    },
+    {
+        "type": "key_weights",
+        "params": {
+            "weights_function": {
+                "function_name": "v1",
+                "params": {
+                    "bias": 4,
+                    "scale": 1.8
+                }
+            },
+            "use_lookup": true,
+            "missing_value_weight": 0.0
+        }
+    }
+]
+

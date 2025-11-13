@@ -1,12 +1,6 @@
 {
-    "out_csv_path": "./results/evaluation_results_v3.csv",
-
-    "data_split__to__path": {
-        "test": "./data/data_preprocessed/test.jsonl",
-        "val": "./data/data_preprocessed/valid.jsonl"
-    },
-
+    "output_csv_path": "./results/evaluation_results.csv",
     "prediction_paths": [
-        "./results/predictions/val"
+        "results/predictions"
     ]
 }

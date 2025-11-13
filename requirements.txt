@@ -1,7 +1,0 @@
-requests==2.31.0  # for ./src/downloaders scripts only
-gdown==5.2.0  # for ./src/downloaders scripts only
-torch==2.1.2
-tqdm==4.66.3
-numpy==1.24.3
-pandas==2.1.3  # for evaluate.py only
-lightning==2.2.4  # for training only

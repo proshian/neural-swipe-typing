@@ -1,0 +1,16 @@
+[
+    {
+        "type": "trajectory",
+        "params": {
+            "include_dt": true,
+            "include_velocities": false,
+            "include_accelerations": false
+        }
+    },
+    {
+        "type": "nearest_key",
+        "params": {
+            "use_lookup": true
+        }
+    }
+]

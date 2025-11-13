@@ -1,4 +1,5 @@
-from typing import List
+from typing import List, Set
+import json
 
 
 ALL_CYRILLIC_LETTERS_ALPHABET_ORD = [
@@ -62,13 +63,22 @@ class CharLevelTokenizerv2:
         return "".join([self.idx_to_char[int(idx)] for idx in token_seq])
 
 
-class KeyboardTokenizerv1:
-    
-    # '-' and '<unk>' symbol are in case of new keyboard layouts.
-    # <pad> is used for padding.
-    i2t = ALL_CYRILLIC_LETTERS_ALPHABET_ORD + ['-', '<unk>', '<pad>']
-    
-    t2i = {t: i for i, t in enumerate(i2t)}
+class KeyboardTokenizer:
+    def __init__(self, json_path: str):
+        with open(json_path, encoding='utf-8') as f:
+            json_obj = json.load(f)
+        self.label_to_idx = {ch: idx for idx, ch in enumerate(json_obj['labels'])}
+        self.idx_to_label = {idx: ch for ch, idx in self.label_to_idx.items()}
+        self.all_special_tokens = json_obj['special_tokens']
 
     def get_token(self, char):
-        return self.t2i.get(char, self.t2i['<unk>'])
+        return self.label_to_idx.get(char, self.label_to_idx['<unk>'])
+
+    def get_all_non_special_tokens(self) -> Set[str]:
+        return set(self.label_to_idx.keys()) - set(self.all_special_tokens)
+
+    def get_all_non_special_token_ids(self) -> Set[int]:
+        return set(self.get_token(lbl) for lbl in self.get_all_non_special_tokens())
+    
+    def __len__(self):
+        return len(self.label_to_idx)

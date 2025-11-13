@@ -1,4 +1,4 @@
-# Neural glide typing
+# Neural Swipe Typing
 
 A transformer neural network for a gesture keyboard that transduces curves swiped across a keyboard into word candidates
 
@@ -24,7 +24,12 @@ Try out a live demo with a trained model from the competition through this [web 
 > The website may take a minute to load, as it is not yet fully optimized. If you encounter a "Something went wrong" page, try refreshing the page. This usually resolves the issue.
 
 > [!NOTE]  
-> The model is an old and underfit legacy transformer variation (m1_bigger in models.py) that was used in the competition. A significant update is planned for both this project and the web app, but it will happen in winter 2024 
+> It is not guaranteed that the model used in the demo is up-to-date with the latest improvements in this repository. 
+
+## Android Library
+
+There is an [Android library](https://github.com/proshian/neural-swipe-keyboard-android) that aims to help to integrate models from this repository into android keyboards
+The library expects that the model is exported via executorch (as in `executorch_investigation` branch of this repository)
 
 ## Report
 
@@ -42,13 +47,10 @@ For in-depth insights, you can refer to my [master's thesis](https://drive.googl
 Install the dependencies:
 
 ```sh
-pip install -r requirements.txt
+pip install -r requirements/requirements.txt
 ```
 
-* The inference was tested with python 3.10
-* The training was conducted in kaggle using Tesla P100
-
-
+* The code has been tested with python 3.10, 3.11 and 3.12
 
 ## Yandex Cup Dataset: Obtaining and Preparation
 
@@ -78,69 +80,130 @@ python ./data_obtaining_and_preprocessing/download_dataset_preprocessed.py
 
 ## Workflow Overview
 
-A trained model is defined not only by its class and weights but also by the dataset transformation used during training.
+Transducing swipes to a list of words involves multiple components
 
-
-All current models are instances of `model.EncoderDecoderTransformerLike` and consist of the following components:
-* Swipe point embedder
-* Word component token embedder (currently char-level)
-* Encoder
-* Decoder 
-
-Transforms extract features from the raw dataset, converting each dataset item from the format `(x, y, t, grid_name, tgt_word)` to `(encoder_input, decoder_input), decoder_output`.
-
-After collating the dataset, the format becomes `(packed_model_in, dec_out)`, where `packed_model_in` is `(encoder_input, decoder_input, swipe_pad_mask, word_pad_mask)`. `packed_model_in` is passed to the model via unpacking (`model(*packed_model_in)`).
-
-* `encoder_input` is passed as the only argument to swipe_point_embedder’s forward. The type depends on which swipe point embedding layer you use. It can be a single object, a tuple of objects
-* `decoder_input` and `decoder_output` are `tokenized_target_word[1:]` and `tokenized_target_word[:-1]` correspondingly.
-
-
-A trained swipe decoding method is defined by
-* model class
+* SwipeFeatureExtractor instance
+* neural network architecture
+    * swipe point embedder
+    * subword embedder
+    * encoder
+    * decoder
 * model weights
-* dataset transformation
 * decoding algorithm
 
 
+### SwipeFeatureExtractor
+A `SwipeFeatureExtractor` is any callable that takes three integer 1d tensors (`x`, `y`, `t`) representing raw coordinates and time in milliseconds and returns a list of tensors that are inputs of a certain `SwipePointEmbedder`.
+Current implementations of this protocol:
+1. `TrajectoryFeatureExtractor`: Extracts trajectory features such as x, y, dt and coordinate derivatives.
+2. `CoordinateFunctionFeatureExtractor`: An adapter to make callables that accept `torch.stack(x, y)` satisfy the `SwipeFeatureExtractor` interface. Example of these coordinate feature extractors:
+    * `DistanceGetter` - for each swipe point returns the distance to the key centers
+    * `NearestKeyGetter` - for each swipe point returns the id of the nearest key center
+    * `KeyWeightsGetter` - for each swipe point returns the weights (importance) of the key by applying a function to the `DistanceGetter` output
+3. `MultiFeatureExtractor`: Combines multiple feature extractors into one.
+
+
+### Feature extraction in the dataset
+`SwipeFeatureExtractor`s are used as a dataset transformation step to extract relevant features from the raw swipe data before feeding it into the model.
+
+After collating the dataset, the format becomes `(packed_model_in, dec_out)`, where `packed_model_in` is `(encoder_input, decoder_input, swipe_pad_mask, word_pad_mask)`. `packed_model_in` is passed to the model via unpacking (`model(*packed_model_in)`).
+
+* `encoder_input` is a list of tensors (padded features from a `SwipeFeatureExtractor`)
+* `decoder_input` and `decoder_output` are `tokenized_target_word[1:]` and `tokenized_target_word[:-1]` correspondingly.
+
+
+### Model
+All current models are instances of `model.EncoderDecoderTransformerLike` and consist of the following components:
+* Swipe point embedder
+* Subword token embedder (currently char-level)
+* Encoder
+* Decoder
+
+
+### WordGenerator
+
+A WordGenerator receives the encoded swipe features for a swipe and outputs 
+a sorted list of scored word candidates (list of tuples (word: str, score: float)).
+
+A WordGenerator stores:
+* A model (`EncoderDecoderTransformerLike`) that processes the encoded swipe features
+* A subword_tokenizer (`CharLevelTokenizerv2`) that converts characters to tokens and vice versa
+* A logit processor (`LogitProcessor`) that manipulates the model's output logits. Currently `VocabularyLogitProcessor` is used to apply vocabulary-based masking and make it impossible for the model to generate the tokens outside the vocabulary
+* Hyperparameters specific to a particular word generator
+
+
+Currently, word generators accept non batched swipe features (process one swipe at a time).
 
 ## Your Custom Dataset
 
-Your custom dataset must have items of format: `tuple(x, y, t, grid_name, tgt_word)`. These raw features won't be used but there are transforms defined in `feature_extractors.py` corresponding to every type of `swipe point embedding layer` that extract the needed features. You can apply these transforms in your dataset's `__init__` method or in `__get_item__` / `__iter__`. The data formats after transform and after collation are described above
+The Dataset class expects a jsonl file with the following structure:
 
-You also need to add your keyboard layout to `grid_name_to_grid.json`
+```json
+[
+    {
+        "word":"на",
+        "curve":{
+            "x":[567,567,507, ...],
+            "y":[66,66,101, ...],
+            "t":[0,3,24, ...],
+            "grid_name":"your_keyboard_layout_name"}
+    },
+    ...
+]
+```
 
-<!--
+You also need to add your keyboard layout to `grid_name_to_grid.json` and provide a tokenizer config (see the example in `tokenizers\keyboard\ru.json`)
 
-**TODO: Add info on how exactly the dataset should be integrated** 
+You may want to clean the data from outliers and errors  using `src\data_obtaining_and_preprocessing\filter_dataset.py`
 
--->
+<!-- **TODO: This section needs more details.** -->
 
 ## Training
 
-<!-- Перед побучением необходимо очистить тренировочный датасет -->
 
-The training is done in [train.ipynb](src/train.ipynb)
+Use train.py with a train config. Example:
+```sh
+python -m src.train --train_config configs/train/train_traj_and_nearest.json
+```
 
-> [!WARNING]  
-> `train.ipynb` drains RAM when using `n_workers` > 0 in Dataloader. This can result in up to `dataset_size * n_workers` extra gigabytes of RAM usage. This is a known issue (see [here](https://github.com/pytorch/pytorch/issues/13246)) that happens when a dataset uses a list to store data. Although `torch.cuda.empty_cache()` can be used as a workaround, it doesn't seem to work with pytorch lightning. It appears I didn't commit this workaround, but you can adapt train.ipynb from [before-lightning branch](https://github.com/proshian/neuroswipe/tree/before-lightning) by adding ```torch.cuda.empty_cache()``` after each epoch to to avoid the issue. When training in a kaggle notebook, the issue is not a problem since a kaggle session comes with 30 Gb of RAM.  
+You can also use as [train_for_kaggle.ipynb](src/train_for_kaggle.ipynb) jupyter notebook (for example if you want to do the training in kaggle).
 
 
 ## Prediction
 
+You may want to extract model states from checkpoints using the provided `ckpt_to_pt.py` script.
+```sh
+python -m src.utils.ckpt_to_pt --ckpt-path checkpoints --out-path model_states
+```
+
 [word_generation_demo.ipynb](src/word_generation_demo.ipynb) serves as an example on how to predict via a trained model.
 
-[predict_v2.py](src/predict_v2.py) is used to obtain word candidates for a whole dataset and pickle them
+[predict.py](src/predict.py) is used to obtain word candidates for a whole dataset and pickle them
 
-predict_v2.py usage example:
+predict.py usage example:
 
+```sh
+python src/predict.py --config configs/prediction/prediction_conf__traj_and_nearest.json --num-workers 4
 ```
-python3.10 src/predict_v2.py --config configs/config__my_weighted_features.json --num-workers 0
+
+```sh
+python -m src.predict_all_epochs --config configs/prediction/prediction_conf__traj_and_nearest.json  --num-workers 4
 ```
 
-> [!WARNING]  
-> If the decoding algorithm in `predict_v2.py` script utilizes a vocabulary for masking (if `use_vocab_for_generation: true` in the config), it is necessary to disable multiprocessing by passing the command-line argument `--num-workers 0` to the script. Otherwise, the prediction will take a long time. It's a bug that will be fixed
+>[!Tip]
+> On some systems you may find that multiprocessing with `num_workers > 0` is slower than `num_workers = 0`. Try both options to see which one works better for you.
 
+## Evaluation
 
+```sh
+python -m src.evaluate --config configs/config_evaluation.json
+```
+
+## Plot metrics
+
+```sh
+python -m src.plot_metrics --csv results/evaluation_results.csv --metrics accuracy mmr --output_dir results/plots
+```
 
 ## Yandex cup 2023 results
 * [task](./docs_and_assets/yandex_cup/task/task.md)

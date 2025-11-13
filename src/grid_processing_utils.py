@@ -102,3 +102,17 @@ def get_grid_name_to_grid(grid_name_to_grid__path: str,
         for grid_name in allowed_gnames
     }
     return grid_name_to_grid
+
+
+def get_avg_half_key_diag(grid: dict, 
+                          allowed_keys: List[str]) -> float:
+    hkd_list = []
+    for key in grid['keys']:
+        label = get_kb_label(key)
+        if label not in allowed_keys:
+            continue
+        hitbox = key['hitbox']
+        kw, kh = hitbox['w'], hitbox['h']
+        half_key_diag = (kw**2 + kh**2)**0.5 / 2
+        hkd_list.append(half_key_diag)
+    return sum(hkd_list) / len(hkd_list)
