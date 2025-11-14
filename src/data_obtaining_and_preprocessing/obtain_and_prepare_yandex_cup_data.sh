@@ -1,6 +1,6 @@
 #!/bin/bash
 
-python data_obtaining_and_preprocessing/download_original_data.py
+python data_obtaining_and_preprocessing/download_yandex_cup_dataset_original.py
 
 python data_obtaining_and_preprocessing/separate_grid.py \
     --input_dir ../data/data_original \
@@ -28,11 +28,11 @@ rm ../data/data_preprocessed/train.jsonl
 
 python -m data_obtaining_and_preprocessing.compute_trajectory_features_statistics \
     --train_data_path ../data/data_preprocessed/train_filtered.jsonl \
-    --voc_path ../data/data_preprocessed/voc.txt \
+    --voc ../data/data_preprocessed/voc.txt \
     --output_json ../data/data_preprocessed/trajectory_features_statistics.json \
     --total 6000000
 
 python -m data_obtaining_and_preprocessing.compute_key_bounding_box \
     --grids_path ../data/data_preprocessed/gridname_to_grid.json \
     --labels а б в г д е ë ж з и й к л м н о п р с т у ф х ц ч ш щ ъ ы ь э ю я \
-    --output_json ../data/data_preprocessed/key_bounding_boxes.json
+    --output ../data/data_preprocessed/key_bounding_boxes.json

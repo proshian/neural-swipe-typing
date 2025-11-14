@@ -60,7 +60,7 @@ To acquire and prepare the Yandex Cup dataset, follow the steps below:
 
 ```sh
 cd src
-bash ./data_obtaining_and_preprocessing/obtain_and_prepare_data.sh
+bash ./data_obtaining_and_preprocessing/obtain_and_prepare_yandex_cup_data.sh
 ```
 
 > [!Note]  
@@ -73,7 +73,7 @@ If you prefer to skip the lengthy preprocessing steps, you can directly download
 
 ```sh
 cd src
-python ./data_obtaining_and_preprocessing/download_dataset_preprocessed.py
+python ./data_obtaining_and_preprocessing/download_yandex_cup_dataset_preprocessed.py
 ```
 
 
@@ -136,10 +136,9 @@ Currently, word generators accept non batched swipe features (process one swipe 
 
 ## Your Custom Dataset
 
-The Dataset class expects a jsonl file with the following structure:
+The Dataset class expects a jsonl file where each line looks like this:
 
-```json
-[
+```yaml
     {
         "word":"на",
         "curve":{
@@ -147,9 +146,7 @@ The Dataset class expects a jsonl file with the following structure:
             "y":[66,66,101, ...],
             "t":[0,3,24, ...],
             "grid_name":"your_keyboard_layout_name"}
-    },
-    ...
-]
+    }
 ```
 
 You also need to add your keyboard layout to `grid_name_to_grid.json` and provide a tokenizer config (see the example in `tokenizers\keyboard\ru.json`)
@@ -210,9 +207,6 @@ python -m src.plot_metrics --csv results/evaluation_results.csv --metrics accura
 * [submission reproduction](./docs_and_assets/yandex_cup/submission_reproduciton_instrucitons.md). 
 * [leaderboard](./docs_and_assets/yandex_cup/leaderboard.md)
 
-
-# Documentation
-A WIP documentation can be found [here](./docs_and_assets/documentation.md). It doesn't contain much information yet, will be updated. Please refer to docstrings in the code for now
 
 
 ## Thank you for your attention
