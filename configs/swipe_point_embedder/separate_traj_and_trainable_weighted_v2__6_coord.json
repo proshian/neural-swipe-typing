@@ -1,5 +1,5 @@
 {
-    "type": "separate_traj_and_trainable_weighted",
+    "type": "separate_traj_and_trainable_weighted_v2",
     "params": {
         "n_keys": 36,
         "key_emb_size": 122,
