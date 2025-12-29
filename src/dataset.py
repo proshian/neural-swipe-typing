@@ -79,7 +79,7 @@ class SwipeDataset(Dataset):
                   total: Optional[int] = None) -> List[RawDatasetEl]:
         data_list = []
         with open(data_path, "r", encoding="utf-8") as json_file:
-            for line in tqdm(json_file, total = total):
+            for line in tqdm(json_file, total=total, desc="Reading jsonl data into a list..."):
                 data_el = self._get_data_from_json_line(line)
                 if transform is not None:
                     data_el = transform(data_el)

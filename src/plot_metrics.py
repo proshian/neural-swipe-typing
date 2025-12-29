@@ -28,7 +28,7 @@ def plot_metrics(csv_path, metrics, output_dir="plots"):
         plt.figure()
         for experiment in experiments:
             experiment_df = df[df["experiment_name"] == experiment].sort_values("epoch")
-            plt.plot(experiment_df["epoch"], experiment_df[metric], marker="o", label=experiment)
+            plt.plot(experiment_df["epoch"], experiment_df[metric], label=experiment)
 
         plt.title(f"{metric} vs Epochs")
         plt.xlabel("Epoch")

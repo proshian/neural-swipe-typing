@@ -118,6 +118,101 @@ class SeparateTrajAndNearestEmbeddingWithPos(nn.Module):
         return x
     
 
+class VectorizedKeyboardDistributions(nn.Module):
+    """
+    A module that holds trainable multivariate normal distributions (MVNDs).
+    The MVNDs are used as weights for weighted sum embedding of keyboard keys.
+    The MVNDs probs can be interpreted as certainty that a point "belongs to
+    a segment of the swipe corresponding to a given key".
+    """
+    def __init__(self, n_keys, key_centers: torch.Tensor):
+        super().__init__()
+
+        IGNORE_COORDINATE_VALUE = (-1.0, -1.0)
+
+        self.n_keys = n_keys
+        
+        assert key_centers.shape == (n_keys, 2)
+        
+        # Identify keys that should be ignored (centers at -1, -1)
+        is_active = ~(
+            (key_centers[:, 0] == IGNORE_COORDINATE_VALUE[0]) 
+            & (key_centers[:, 1] == IGNORE_COORDINATE_VALUE[1])
+        )
+        active_idx = torch.nonzero(is_active, as_tuple=False).squeeze(1)
+
+        self.register_buffer("active_keys_mask", is_active)      # (n_keys,)
+        self.register_buffer("active_keys_idx", active_idx)      # (n_active,)
+
+        self.n_active_keys = int(active_idx.numel())
+
+        assert self.n_active_keys > 0, "No active keys found in key_centers!"
+
+        self.means = nn.Parameter(key_centers[is_active].clone())  # (n_active, 2)
+
+        # Cholesky factors (vectorized lower-triangular values)
+        self.L_params = nn.Parameter(torch.randn(self.n_active_keys, 3) * 0.1)  # (n_active, 3)
+        self.eps = 1e-6
+    
+
+    def get_covariances(self):
+        # Vectorized construction of L for active keys only
+        L = torch.zeros(
+            self.n_active_keys, 2, 2,
+            device=self.L_params.device,
+            dtype=self.L_params.dtype,
+        )
+        tril_indices = torch.tril_indices(2, 2, device=self.L_params.device)
+        L[:, tril_indices[0], tril_indices[1]] = self.L_params
+
+        # Softplus on diagonals for stability
+        diag_idx = torch.arange(2, device=self.L_params.device)
+        L[:, diag_idx, diag_idx] = torch.nn.functional.softplus(L[:, diag_idx, diag_idx]) + self.eps
+
+        return L @ L.transpose(-1, -2)  # (n_active, 2, 2)
+
+
+    def forward(self, x):
+        # x: (seq_len, batch_size, 2)
+        out = torch.zeros(
+            *x.shape[:-1], self.n_keys,
+            device=x.device,
+            dtype=x.dtype
+        )
+
+        covs = self.get_covariances()
+        dist = torch.distributions.MultivariateNormal(self.means, covs)
+
+        # x: (seq_len, batch_size, 1, 2) -> log_prob: (seq_len, batch_size, n_active)
+        log_probs_active = dist.log_prob(x.unsqueeze(-2))
+
+        # Scatter active results back into full key dimension
+        out.index_copy_(-1, self.active_keys_idx, log_probs_active)
+        return out
+
+
+class SeparateTrajAndTrainableWeightedEmbeddingWithPosV2(nn.Module):
+    # Separate in a sense that we don't apply a linear layer to mix the layers
+    def __init__(self, n_keys, key_emb_size, max_len, device, dropout = 0.1,
+                 key_centers: Optional[torch.Tensor] = None) -> None:
+        super().__init__()
+        self.weights_getter = VectorizedKeyboardDistributions(n_keys, key_centers)
+        self.weighted_sum_emb = WeightsSumEmbeddingWithPos(n_keys, key_emb_size, max_len, device)
+        self.dropout = nn.Dropout(dropout)
+
+
+    def forward(self, traj_feats: Tensor) -> Tensor:
+        xy = traj_feats[...,:2]
+        kb_key_weights = self.weights_getter(xy)
+        kb_k_emb = self.weighted_sum_emb(kb_key_weights)
+        kb_k_emb = self.dropout(kb_k_emb)
+        x = torch.cat((traj_feats, kb_k_emb), dim = -1)
+        return x
+
+
+
+
+
 
 # class PSDSymmetricMatrix(nn.Module):
 #     """
@@ -230,8 +325,9 @@ class SeparateTrajAndTrainableWeightedEmbeddingWithPos(nn.Module):
         self.weighted_sum_emb = WeightsSumEmbeddingWithPos(n_keys, key_emb_size, max_len, device)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, traj_feats: Tensor, xy_coords: Tensor) -> Tensor:
-        kb_key_weights = self.weights_getter(xy_coords)
+    def forward(self, traj_feats: Tensor) -> Tensor:
+        xy = traj_feats[..., :2]
+        kb_key_weights = self.weights_getter(xy)
         kb_k_emb = self.weighted_sum_emb(kb_key_weights)
         kb_k_emb = self.dropout(kb_k_emb)
         x = torch.cat((traj_feats, kb_k_emb), dim = -1)

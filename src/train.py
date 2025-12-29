@@ -5,6 +5,7 @@ import json
 import os
 import argparse
 from typing import List
+import logging
 
 import torch
 from lightning import Trainer
@@ -23,7 +24,22 @@ from train_utils import EmptyCudaCacheCallback
 from model import get_transformer__from_spe_config__vn1
 
 
+logger = logging.getLogger(__name__)
+
+
 LOG_DIR = "lightning_logs/"
+
+
+
+def _setup_logging(train_config: dict) -> None:
+    """Configure logging, even if called after logger creation."""
+    # Remove all handlers from root logger
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+    
+    logging_level_str = train_config.get("logging_level", "INFO")
+    logging.basicConfig(level=getattr(logging, logging_level_str))
+    
 
 
 def read_json(path: str):
@@ -265,4 +281,5 @@ def main(train_config: dict) -> None:
 if __name__ == "__main__":
     args = parse_args()
     train_config = read_json(args.train_config)
+    _setup_logging(train_config)
     main(train_config)
