@@ -201,9 +201,16 @@ python -m src.evaluate --config configs/config_evaluation.json
 
 ## Plot metrics
 
+Plot metrics from a CSV file obtained during evaluation (evaluate.py):
 ```sh
 python -m src.plot_metrics --csv results/evaluation_results.csv --metrics accuracy mmr --output_dir results/plots --colors_config configs/experiment_colors.json
 ```
+
+Plot metrics from TensorBoard logs obtained during training (train.py):
+```sh
+python -m src.plot_tb_metrics --tb_logdir_root lightning_logs --output_dir results/plots/tb --colors_config configs/experiment_colors.json
+```
+
 
 ## Yandex cup 2023 results
 * [task](./docs_and_assets/yandex_cup/task/task.md)
