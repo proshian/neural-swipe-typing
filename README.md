@@ -202,7 +202,7 @@ python -m src.evaluate --config configs/config_evaluation.json
 ## Plot metrics
 
 ```sh
-python -m src.plot_metrics --csv results/evaluation_results.csv --metrics accuracy mmr --output_dir results/plots
+python -m src.plot_metrics --csv results/evaluation_results.csv --metrics accuracy mmr --output_dir results/plots --colors_config configs/experiment_colors.json
 ```
 
 ## Yandex cup 2023 results
