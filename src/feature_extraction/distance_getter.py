@@ -35,7 +35,7 @@ def compute_pairwise_distances(dots: Tensor, centers: Tensor) -> Tensor:
     return torch.sqrt(torch.pow((centers_exp - dots_exp), 2).sum(dim=-1))
 
 
-class DistanceGetter:
+class DistanceGetter(torch.nn.Module):
     """
     Computes distances from coordinates to key centers.
     Handles missing keys via masking.
@@ -44,8 +44,7 @@ class DistanceGetter:
     def __init__(self,
                  grid: dict,
                  tokenizer: KeyboardTokenizer,
-                 missing_distance_val: float = float('inf'),
-                 device: torch.device = torch.device("cpu")) -> None:
+                 missing_distance_val: float = float('inf')) -> None:
         """
         Arguments:
         ----------
@@ -55,9 +54,11 @@ class DistanceGetter:
             Value to fill for distances to keys that are not present in the grid.
             Defaults to +inf.
         """
-        self.device = device
+        super().__init__()
         self.missing_distance_val = missing_distance_val
-        self.centers, self.mask = self._get_centers(grid, tokenizer)
+        centers, mask = self._get_centers(grid, tokenizer)
+        self.register_buffer('centers', centers)
+        self.register_buffer('mask', mask)
 
     def _get_centers(self, grid: dict, 
                      tokenizer: KeyboardTokenizer
@@ -73,8 +74,7 @@ class DistanceGetter:
         known_non_special_token_ids = tokenizer.get_all_non_special_token_ids()
         
         centers = torch.empty((len(tokenizer), 2),
-                             dtype=torch.float32,
-                             device=self.device)
+                             dtype=torch.float32)
 
         present_tokens = set()
 
@@ -85,29 +85,28 @@ class DistanceGetter:
                 hb = key['hitbox']
                 centers[token] = torch.tensor(
                     [hb['x'] + hb['w'] / 2, hb['y'] + hb['h'] / 2],
-                    device=self.device
                 )
                 present_tokens.add(token)
 
-        mask = torch.ones((len(tokenizer),), dtype=torch.bool, device=self.device)
-        mask[torch.tensor(list(present_tokens), device=self.device)] = False
+        mask = torch.ones((len(tokenizer),), dtype=torch.bool)
+        mask[torch.tensor(list(present_tokens))] = False
 
         return centers, mask
 
-    def __call__(self, coords: Tensor) -> Tensor:
+    def forward(self, coords: Tensor) -> Tensor:
         """
         Arguments:
         ----------
         coords: Tensor
-            Coordinates tensor of shape (N, 2)
+            Coordinates tensor of shape (..., 2)
 
         Returns:
         --------
         distances: Tensor
-            Tensor of shape (N, K), 
+            Tensor of shape (..., K), 
             where K is the (max token id + 1) among key_labels_of_interest.
         """
-        coords = coords.to(dtype=torch.float32, device=self.device)
-        dists = compute_pairwise_distances(coords, self.centers)  # (N, K)
-        dists[:, self.mask] = self.missing_distance_val
+        coords = coords.to(dtype=torch.float32)
+        dists = compute_pairwise_distances(coords, self.centers)  # (..., K)
+        dists[..., self.mask] = self.missing_distance_val
         return dists
