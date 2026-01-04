@@ -9,7 +9,7 @@ _INTEGER_DTYPES = {torch.int8, torch.int16, torch.int32, torch.int64, torch.uint
 def is_integer_tensor(tensor: Tensor) -> bool:
     return tensor.dtype in _INTEGER_DTYPES
 
-class GridLookup:
+class GridLookup(torch.nn.Module):
     def __init__(
         self,
         grid_width: int,
@@ -27,11 +27,13 @@ class GridLookup:
             Function accepting Tensor (N, 2) of (x, y)
             and returning either (N,) or (N, feature_size).
         """
+        super().__init__()
         self.grid_width = grid_width
         self.grid_height = grid_height
         self.value_fn = value_fn
         self.feature_size, self.output_has_feature_dim = self._get_feature_properties()
-        self.lookup_tensor = self._build_lookup_tensor()
+        lookup_tensor = self._build_lookup_tensor()
+        self.register_buffer('lookup_tensor', lookup_tensor)
 
     def _get_feature_properties(self) -> Tuple[int, bool]:
         sample_coords = torch.zeros((1, 2), dtype=torch.int32)
@@ -56,7 +58,7 @@ class GridLookup:
 
         return features.view(self.grid_width, self.grid_height, self.feature_size)
 
-    def __call__(self, coords: Tensor) -> Tensor:
+    def forward(self, coords: Tensor) -> Tensor:
         if not is_integer_tensor(coords):
             raise ValueError("coords must be an integer tensor, " \
                              f"got {coords.dtype}")
@@ -64,7 +66,9 @@ class GridLookup:
         x, y = coords.unbind(dim=-1)
 
         in_bounds = (x >= 0) & (x < self.grid_width) & (y >= 0) & (y < self.grid_height)
-        output = torch.empty((x.size(0), self.feature_size), dtype=self.lookup_tensor.dtype)
+
+        output_shape = (*x.shape, self.feature_size)
+        output = torch.empty(output_shape, dtype=self.lookup_tensor.dtype, device=self.lookup_tensor.device)
 
         if in_bounds.any():
             x_ib = x[in_bounds]
@@ -73,10 +77,11 @@ class GridLookup:
 
         if (~in_bounds).any():
             coords_oob = torch.stack((x[~in_bounds], y[~in_bounds]), dim=1)
+            # TODO: Ensure coords_oob is on the same device as value_fn expects.
             values_oob = self.value_fn(coords_oob)
             if not self.output_has_feature_dim:
                 values_oob.unsqueeze_(-1)
-            output[~in_bounds] = values_oob
+            output[~in_bounds] = values_oob.to(output.dtype)
 
         if not self.output_has_feature_dim:
             output = output.squeeze(-1)
