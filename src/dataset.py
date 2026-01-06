@@ -32,6 +32,14 @@ def _get_data_from_json_line(line) -> RawDatasetEl:
     return X, Y, T, grid_name, tgt_word
 
 
+def get_decoder_in_and_out(tgt_word: str, word_tokenizer: CharLevelTokenizerv2
+                            ) -> Tuple[Tensor, Tensor]:
+    tgt_token_seq: List[int] = word_tokenizer.encode(tgt_word)
+    tgt_token_seq = torch.tensor(tgt_token_seq, dtype=torch.int64)
+    decoder_in = tgt_token_seq[:-1]
+    decoder_out = tgt_token_seq[1:]
+    return decoder_in, decoder_out
+
 class SwipeDataset(Dataset):
     """
     Dataset class for NeuroSwipe jsonl dataset
@@ -91,28 +99,21 @@ class SwipeDataset(Dataset):
                                  ) -> RawDatasetEl:
         return _get_data_from_json_line(line)
     
-    def _get_decoder_in_and_out(self, tgt_word: str
-                                ) -> Tuple[Tensor, Tensor]:
-        tgt_token_seq: List[int] = self.word_tokenizer.encode(tgt_word)
-        tgt_token_seq = torch.tensor(tgt_token_seq, dtype=torch.int64)
-        decoder_in = tgt_token_seq[:-1]
-        decoder_out = tgt_token_seq[1:]
-        return decoder_in, decoder_out
+    def _get_decoder_in_and_out(self, tgt_word: str) -> Tuple[Tensor, Tensor]:
+        return get_decoder_in_and_out(tgt_word, self.word_tokenizer)
     
     def __len__(self):
         return len(self.data_list)
     
     def __getitem__(self, idx: int
-                    ) -> Tuple[Tuple[List[Tensor], Tensor], Tensor]:
+                    ) -> Tuple[Tuple[Tensor, Tensor, Tensor, str, Tensor], Tensor]:
         x, y, t, grid_name, tgt_word = self.data_list[idx]
         x, y, t = map(
             lambda x: torch.tensor(x, dtype=torch.float32), 
             (x, y, t))
-        swipe_feature_extractor = self.grid_name_to_swipe_feature_extractor[grid_name]
-        swipe_features = swipe_feature_extractor(x, y, t)
         decoder_in, decoder_out = self._get_decoder_in_and_out(tgt_word)
         
-        return ((swipe_features, decoder_in), decoder_out)
+        return ((x, y, t, grid_name, decoder_in), decoder_out)
     
     @classmethod
     def from_data_list(cls, 
@@ -160,48 +161,44 @@ class CollateFn:
     def __call__(self, batch: list):
         """
         Given a List where each row is 
-        ((encoder_in_sample, decoder_in_sample), decoder_out_sample) 
+        (x, y, t, grid_name, decoder_in_sample, decoder_out_sample) 
         returns a tuple of two elements:
-        1. (encoder_in, decoder_in, swipe_pad_mask, word_pad_mask)
+        1. (x, y, t, grid_names, decoder_in, swipe_pad_mask, word_pad_mask)
         2. decoder_out
 
         Arguments:
         ----------
         batch: list of tuples:
-            ((encoder_in, dec_in_char_seq), dec_out_char_seq),
-            where encoder_in is a list of torch tensors
+            (x, y, t, grid_name, dec_in_char_seq, dec_out_char_seq)
 
         Returns:
         --------
         1. transformer_in: tuple of torch tensors:
-            (enc_in, dec_in, swipe_pad_mask, word_pad_mask),
-            where enc_in can be either a single tensor or a tuple
-            of two tensors (depends on type of input)
-            Each element is a torch tensor of shape:
-            - enc_in: list of tensors with shapes:
-                [(swipe_len, batch_size, n_feats1), (swipe_len, batch_size, n_feats2), ...]
-            - dec_in: (chars_seq_len - 1, batch_size)
-            - swipe_pad_mask: (batch_size, swipe_len)
-            - word_pad_mask: (batch_size, chars_seq_len - 1)
+            (x, y, t, grid_names, dec_in, swipe_pad_mask, word_pad_mask),
+            where x, y, t are padded trajectories
         2. dec_out: torch tensor of shape (chars_seq_len - 1, batch_size)
         """
         decoder_inputs, decoder_outputs = [], []
+        x_list, y_list, t_list, grid_names = [], [], [], []
 
-        num_encoder_features = len(batch[0][0][0])
-        encoder_inputs = [[] for _ in range(num_encoder_features)]
-
-        for (enc_in, dec_in), dec_out in batch:
-            for feature, features_list in zip(enc_in, encoder_inputs):
-                features_list.append(feature)
-
+        for (x, y, t, grid_name, dec_in), dec_out in batch:
+            x_list.append(x)
+            y_list.append(y)
+            t_list.append(t)
+            grid_names.append(grid_name)
             decoder_inputs.append(dec_in)
             decoder_outputs.append(dec_out)
 
-        encoder_inputs_padded = [
-            pad_sequence(
-                encoder_in_el, batch_first=self.batch_first,
-                padding_value=self.swipe_pad_idx)
-            for encoder_in_el in encoder_inputs]
+        # Pad trajectories
+        x_padded = pad_sequence(
+            x_list, batch_first=self.batch_first,
+            padding_value=self.swipe_pad_idx)
+        y_padded = pad_sequence(
+            y_list, batch_first=self.batch_first,
+            padding_value=self.swipe_pad_idx)
+        t_padded = pad_sequence(
+            t_list, batch_first=self.batch_first,
+            padding_value=self.swipe_pad_idx)
 
         decoder_inputs_padded = pad_sequence(
             decoder_inputs, batch_first=self.batch_first,
@@ -210,35 +207,20 @@ class CollateFn:
         decoder_outputs_padded = pad_sequence(
             decoder_outputs, batch_first=self.batch_first,
             padding_value=self.word_pad_idx)
-        
 
         word_pad_mask = decoder_inputs_padded == self.word_pad_idx
         if not self.batch_first:
             word_pad_mask = word_pad_mask.T  # word_pad_mask is always batch first
 
+        # Create trajectory padding mask
+        max_swipe_len = x_padded.shape[1] if self.batch_first else x_padded.shape[0]
+        x_lengths = torch.tensor([len(x) for x in x_list])
 
-        encoder_in_el = encoder_inputs_padded[0]
-        max_swipe_len = encoder_in_el.shape[1] if self.batch_first else encoder_in_el.shape[0]
-        encoder_inputs_single_feature_no_pad = encoder_inputs[0]
-        encoder_input_lengths = torch.tensor(
-            [len(x) for x in encoder_inputs_single_feature_no_pad])
-
-        batch_size = encoder_input_lengths.shape[0]
-
-        # Create mask where True indicates positions beyond a 
-        # corresponding trajectory length.
-        # 1. Create index sequences [0,1,…max_swipe_len-1] 
-        #    for each batch element.
-        # 2. Compare each index of each batch element 
-        #    with the length of the corresponding trajectory.
-        # Shape: (batch_size, max_swipe_len)
+        batch_size = x_lengths.shape[0]
         swipe_pad_mask = torch.arange(max_swipe_len).expand(
-            batch_size, max_swipe_len) >= encoder_input_lengths.unsqueeze(1)
+            batch_size, max_swipe_len) >= x_lengths.unsqueeze(1)
         
-
-        transformer_in = (encoder_inputs_padded, 
-                          decoder_inputs_padded, 
-                          swipe_pad_mask, 
-                          word_pad_mask)
+        transformer_in = (x_padded, y_padded, t_padded, grid_names, 
+                          decoder_inputs_padded, swipe_pad_mask, word_pad_mask)
         
         return transformer_in, decoder_outputs_padded
