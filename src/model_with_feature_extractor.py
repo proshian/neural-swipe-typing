@@ -5,10 +5,13 @@ from torch import Tensor
 import torch.nn as nn
 
 from src.feature_extraction.swipe_feature_extractors import SwipeFeatureExtractor
-
+from src.model import EncoderDecoderTransformerLike
 
 class ModelWithFeatureExtractor(nn.Module):
-    def __init__(self, model: nn.Module, grid_name_to_feature_extractor: Dict[str, SwipeFeatureExtractor]):
+    def __init__(self, 
+                 model: EncoderDecoderTransformerLike, 
+                 grid_name_to_feature_extractor: Dict[str, SwipeFeatureExtractor]
+                 ) -> None:
         super().__init__()
         self.model = model
         self.extractors = nn.ModuleDict(grid_name_to_feature_extractor)
@@ -81,13 +84,17 @@ class ModelWithFeatureExtractor(nn.Module):
             
         return merged_features
 
-    def forward(self, x: Tensor, y: Tensor, t: Tensor, grid_names: List[str], *args, **kwargs):
+    def forward(self, x: Tensor, y: Tensor, t: Tensor, grid_names: List[str], 
+                decoder_in: Tensor, swipe_pad_mask: Tensor, word_pad_mask: Tensor) -> Tensor:
         """
         Args:
             x: (seq_len, batch_size)
             y: (seq_len, batch_size)
             t: (seq_len, batch_size)
             grid_names: list of grid names of length batch_size
+            decoder_in: decoder input tokens
+            swipe_pad_mask: padding mask for swipe trajectories
+            word_pad_mask: padding mask for decoder output
         """
         feats = self._get_features(x, y, t, grid_names)
-        return self.model(feats, *args, **kwargs)
+        return self.model(feats, decoder_in, swipe_pad_mask, word_pad_mask)
