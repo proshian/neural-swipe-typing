@@ -22,6 +22,7 @@ from pl_module import LitNeuroswipeModel
 from train_utils import CrossEntropyLossWithReshape
 from train_utils import EmptyCudaCacheCallback
 from model import get_transformer__from_spe_config__vn1
+from model_with_feature_extractor import ModelWithFeatureExtractor
 
 
 logger = logging.getLogger(__name__)
@@ -246,12 +247,14 @@ def main(train_config: dict) -> None:
         device=train_config["device"]
     )
 
-    # n_coord_feats = get_n_traj_feats(feature_extractor)
-    # key_emb_size = train_config["swipe_point_embedder_config"]["params"]["key_emb_size"]
+    model_with_feature_extractor = ModelWithFeatureExtractor(
+        model=model,
+        grid_name_to_feature_extractor=grid_name_to_swipe_feature_extractor
+    )
     # TODO add assert that d_model == n_coord_feats + key_emb_size
 
     pl_model = LitNeuroswipeModel(
-        model=model,
+        model=model_with_feature_extractor,
         criterion = criterion, 
         word_pad_idx = word_pad_idx,
         num_classes = train_config["num_classes"],
