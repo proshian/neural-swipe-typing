@@ -89,14 +89,29 @@ def create_lr_scheduler_ctor(scheduler_type: str, scheduler_params: dict):
     return get_lr_scheduler
     
 
-def create_optimizer_ctor(optimizer_type: str, optimizer_params: dict):
-    def get_optimizer(model_parameters):
+def create_optimizer_ctor(optimizer_type: str, optimizer_kwargs: dict):
+    def get_optimizer(model_named_parameters):
+        
+        no_decay_keys = ["bias", "LayerNorm.weight", "norm.weight"]
+        optimizer_grouped_parameters = [
+            {
+                "params": [p for n, p in model_named_parameters if not any(nd in n for nd in no_decay_keys)],
+                "weight_decay": optimizer_kwargs.get("weight_decay", 0.0),
+            },
+            {
+                "params": [p for n, p in model_named_parameters if any(nd in n for nd in no_decay_keys)],
+                "weight_decay": 0.0,
+            },
+        ]
+
+        optimizer_kwargs_without_weight_decay = {k: v for k, v in optimizer_kwargs.items() if k != "weight_decay"}
+
         if optimizer_type == "Adam":
-            return torch.optim.Adam(model_parameters, **optimizer_params)
+            return torch.optim.Adam(optimizer_grouped_parameters, **optimizer_kwargs_without_weight_decay)
         elif optimizer_type == "AdamW":
-            return torch.optim.AdamW(model_parameters, **optimizer_params)
+            return torch.optim.AdamW(optimizer_grouped_parameters, **optimizer_kwargs_without_weight_decay)
         elif optimizer_type == "SGD":
-            return torch.optim.SGD(model_parameters, **optimizer_params)
+            return torch.optim.SGD(optimizer_grouped_parameters, **optimizer_kwargs_without_weight_decay)
         else:
             raise ValueError(f"Unknown optimizer type: {optimizer_type}")
     return get_optimizer
@@ -216,8 +231,13 @@ def main(train_config: dict) -> None:
 
 
     tb_logger = pl_loggers.TensorBoardLogger(save_dir=LOG_DIR, name=experiment_name)
-    
 
+    # Save train config to the logger directory
+    # for reproducibility.
+    os.makedirs(tb_logger.log_dir, exist_ok=True)
+    with open(os.path.join(tb_logger.log_dir, "config.json"), "w", encoding="utf-8") as f:
+        json.dump(train_config, f, indent=4, ensure_ascii=False)
+    
 
     callbacks = get_callbacks(train_config)
 
