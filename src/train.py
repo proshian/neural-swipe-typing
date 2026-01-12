@@ -22,6 +22,7 @@ from pl_module import LitNeuroswipeModel
 from train_utils import CrossEntropyLossWithReshape
 from train_utils import EmptyCudaCacheCallback
 from model import get_transformer__from_spe_config__vn1
+from utils.get_git_commit_hash import get_git_commit_hash
 
 
 logger = logging.getLogger(__name__)
@@ -271,11 +272,16 @@ def main(train_config: dict) -> None:
 
     tb_logger = pl_loggers.TensorBoardLogger(save_dir=LOG_DIR, name=experiment_name)
 
-    # Save train config to the logger directory
-    # for reproducibility.
+
+    ##### Save train config and git commit hash to the logger directory  
+    ##### for reproducibility.
     os.makedirs(tb_logger.log_dir, exist_ok=True)
     with open(os.path.join(tb_logger.log_dir, "config.json"), "w", encoding="utf-8") as f:
         json.dump(train_config, f, indent=4, ensure_ascii=False)
+    
+    commit_hash = get_git_commit_hash() or "git commit hash unavailable"
+    with open(os.path.join(tb_logger.log_dir, "git_commit_hash.txt"), "w", encoding="utf-8") as f:
+        f.write(commit_hash + "\n")
     
 
     callbacks = get_callbacks(train_config)
