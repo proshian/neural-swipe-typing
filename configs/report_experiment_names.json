@@ -1,0 +1,8 @@
+{
+    "traj_and_weighted": "Traj and Weighted features (OURS)",
+    "traj_and_nearest": "Traj and Nearest features (OURS)",
+    "indiswipe": "Indiswipe_features",
+    "google_2015": "Google_2015_features",
+    "phrase_swipe": "Phrase_swipe_features",
+    "traj_and_trainable_weighted_v2": "Weighted features v2 (OURS)"
+}
