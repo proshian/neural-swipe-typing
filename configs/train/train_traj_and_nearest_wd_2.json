@@ -1,8 +1,7 @@
 {
-    "logging_level": "INFO",
-    "experiment_name": "traj_and_trainable_weighted",
-    "swipe_feature_extractor_factory_config_path": "./configs/feature_extractor/traj.json",
-    "swipe_point_embedder_config_path": "./configs/swipe_point_embedder/separate_traj_and_trainable_weighted__6_coord.json",
+    "experiment_name": "traj_and_nearest_wd_2",
+    "swipe_feature_extractor_factory_config_path": "./configs/feature_extractor/traj_and_nearest.json",
+    "swipe_point_embedder_config_path": "./configs/swipe_point_embedder/separate_traj_and_nearest__6_coord.json",
 
     "num_classes": 35,
     "max_out_seq_len": 35,
@@ -37,8 +36,8 @@
     "model_name": "v3_nearest_and_traj_transformer_bigger",
     "label_smoothing": 0.045,
     "optimizer": {
-        "type": "Adam",
-        "params": {"lr":1e-4, "weight_decay":0}
+        "type": "AdamW",
+        "params": {"lr":1e-4, "weight_decay":0.0001}
     },
     "val_check_interval": 3000,
     "device": "cuda",

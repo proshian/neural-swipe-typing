@@ -260,11 +260,14 @@ def main(train_config: dict) -> None:
         lr_scheduler_ctor=lr_scheduler_ctor, 
     )
 
+    torch.set_float32_matmul_precision(train_config['float32_matmul_precision'])
+
     trainer = Trainer(
     #     limit_train_batches = 400,  # for validating code before actual training
         log_every_n_steps = 100,
         num_sanity_val_steps=0,
         accelerator = 'gpu',
+        precision=train_config["trainer_precision"],
         # max_epochs=100,
         callbacks=callbacks,
         logger=tb_logger,
