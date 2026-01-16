@@ -3,3 +3,4 @@
 /checkpoints
 evaluation_results.csv
 evaluation_results*.csv
+/executorch_models
