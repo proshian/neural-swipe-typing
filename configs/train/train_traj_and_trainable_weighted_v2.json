@@ -1,5 +1,5 @@
 {
-    "logging_level": "DEBUG",
+    "logging_level": "INFO",
     "experiment_name": "traj_and_trainable_weighted_v2",
     "swipe_feature_extractor_factory_config_path": "./configs/feature_extractor/traj.json",
     "swipe_point_embedder_config_path": "./configs/swipe_point_embedder/separate_traj_and_trainable_weighted_v2__6_coord.json",
@@ -41,5 +41,7 @@
         "params": {"lr":1e-4, "weight_decay":0}
     },
     "val_check_interval": 3000,
-    "device": "cuda"
+    "device": "cuda",
+    "trainer_precision": "16-mixed",
+    "float32_matmul_precision": "medium"
 }

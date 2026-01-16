@@ -40,5 +40,7 @@
         "params": {"lr":1e-4, "weight_decay":0}
     },
     "val_check_interval": 3000,
-    "device": "cuda"
+    "device": "cuda",
+    "trainer_precision": "16-mixed",
+    "float32_matmul_precision": "medium"
 }
