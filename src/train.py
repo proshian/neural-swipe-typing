@@ -22,6 +22,7 @@ from pl_module import LitNeuroswipeModel
 from train_utils import CrossEntropyLossWithReshape
 from train_utils import EmptyCudaCacheCallback
 from model import get_transformer__from_spe_config__vn1
+from utils.get_git_commit_hash import get_git_commit_hash
 
 
 logger = logging.getLogger(__name__)
@@ -53,7 +54,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--train_config",
         type=str,
-        default="configs/train.json",
+        required=True,
         help="Path to the training configuration file",
     )
     args = parser.parse_args()
@@ -89,16 +90,71 @@ def create_lr_scheduler_ctor(scheduler_type: str, scheduler_params: dict):
     return get_lr_scheduler
     
 
-def create_optimizer_ctor(optimizer_type: str, optimizer_params: dict):
-    def get_optimizer(model_parameters):
-        if optimizer_type == "Adam":
-            return torch.optim.Adam(model_parameters, **optimizer_params)
-        elif optimizer_type == "AdamW":
-            return torch.optim.AdamW(model_parameters, **optimizer_params)
-        elif optimizer_type == "SGD":
-            return torch.optim.SGD(model_parameters, **optimizer_params)
-        else:
-            raise ValueError(f"Unknown optimizer type: {optimizer_type}")
+def create_optimizer_ctor(optimizer_type: str, optimizer_kwargs: dict, no_decay_keys: List[str] = None):
+    """
+    Create optimizer constructor with configurable weight decay exclusion.
+    
+    Arguments:
+    ----------
+    optimizer_type: str
+        Type of optimizer ('Adam', 'AdamW', 'SGD')
+    optimizer_kwargs: dict
+        Optimizer keyword arguments
+    no_decay_keys: list | None
+        List of parameter name substrings to exclude from weight decay.
+        Must be explicitly set when weight_decay > 0.
+        Use [] to apply weight decay to all parameters.
+        Note that a standard practice is to do ['bias', 'LayerNorm.weight', 'norm.weight']
+        Examples: 
+        * (Recommended) ['bias', 'LayerNorm.weight', 'norm.weight'] 
+        * []
+    """
+    weight_decay = optimizer_kwargs.get("weight_decay", 0.0)
+
+    if weight_decay > 0 and no_decay_keys is None:
+        raise ValueError(
+            "no_decay_keys must be explicitly set when weight_decay > 0. "
+            "Use [] to apply weight decay to all parameters, or specify parameter name substrings "
+            "to exclude (examples: `['bias', 'LayerNorm.weight', 'norm.weight']`, `[]`)."
+        )
+        
+    if no_decay_keys is None:
+        no_decay_keys = []
+
+    def get_optimizer(model_named_parameters):
+        decay_params = []
+        no_decay_params = []
+        
+        for name, param in model_named_parameters:
+            if any(nd_key in name for nd_key in no_decay_keys):
+                no_decay_params.append(param)
+            else:
+                decay_params.append(param)
+        
+        optimizer_grouped_parameters = [
+            {"params": decay_params, "weight_decay": weight_decay},
+            {"params": no_decay_params, "weight_decay": 0.0},
+        ]
+
+        optimizer_kwargs_without_weight_decay = {
+            k: v for k, v in optimizer_kwargs.items() if k != "weight_decay"
+        }
+
+        optimizer_classes = {
+            "Adam": torch.optim.Adam,
+            "AdamW": torch.optim.AdamW,
+            "SGD": torch.optim.SGD
+        }
+
+        if optimizer_type not in optimizer_classes:
+            raise ValueError(
+                f"Unknown optimizer type: {optimizer_type}. "
+                f"Supported types: {list(optimizer_classes.keys())}"
+            )
+        
+        optimizer_class = optimizer_classes[optimizer_type]
+        return optimizer_class(optimizer_grouped_parameters, **optimizer_kwargs_without_weight_decay)
+
     return get_optimizer
 
 
@@ -216,8 +272,18 @@ def main(train_config: dict) -> None:
 
 
     tb_logger = pl_loggers.TensorBoardLogger(save_dir=LOG_DIR, name=experiment_name)
-    
 
+
+    ##### Save train config and git commit hash to the logger directory  
+    ##### for reproducibility.
+    os.makedirs(tb_logger.log_dir, exist_ok=True)
+    with open(os.path.join(tb_logger.log_dir, "config.json"), "w", encoding="utf-8") as f:
+        json.dump(train_config, f, indent=4, ensure_ascii=False)
+    
+    commit_hash = get_git_commit_hash() or "git commit hash unavailable"
+    with open(os.path.join(tb_logger.log_dir, "git_commit_hash.txt"), "w", encoding="utf-8") as f:
+        f.write(commit_hash + "\n")
+    
 
     callbacks = get_callbacks(train_config)
 
@@ -234,7 +300,8 @@ def main(train_config: dict) -> None:
 
     optimizer_ctor = create_optimizer_ctor(
         train_config["optimizer"]["type"],
-        train_config["optimizer"]["params"]
+        train_config["optimizer"]["params"],
+        no_decay_keys=train_config["optimizer"].get("no_decay_keys", None)
     )
 
     spe_config = read_json(train_config["swipe_point_embedder_config_path"])

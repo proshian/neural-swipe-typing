@@ -52,7 +52,7 @@ class LitNeuroswipeModel(LightningModule):
         return self.model.forward(encoder_in, y, encoder_in_pad_mask, y_pad_mask)
 
     def configure_optimizers(self):
-        optimizer = self.optimizer_ctor(self.parameters())
+        optimizer = self.optimizer_ctor(self.named_parameters())
 
         optimizers_configuration = {'optimizer': optimizer}
 
