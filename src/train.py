@@ -54,7 +54,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--train_config",
         type=str,
-        default="configs/train.json",
+        required=True,
         help="Path to the training configuration file",
     )
     args = parser.parse_args()
@@ -104,8 +104,9 @@ def create_optimizer_ctor(optimizer_type: str, optimizer_kwargs: dict, no_decay_
         List of parameter name substrings to exclude from weight decay.
         Must be explicitly set when weight_decay > 0.
         Use [] to apply weight decay to all parameters.
+        Note that a standard practice is to do ['bias', 'LayerNorm.weight', 'norm.weight']
         Examples: 
-        * ['bias', 'LayerNorm.weight', 'norm.weight']
+        * (Recommended) ['bias', 'LayerNorm.weight', 'norm.weight'] 
         * []
     """
     weight_decay = optimizer_kwargs.get("weight_decay", 0.0)
