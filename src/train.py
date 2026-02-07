@@ -21,7 +21,7 @@ from feature_extraction.swipe_feature_extractors import MultiFeatureExtractor, T
 from pl_module import LitNeuroswipeModel
 from train_utils import CrossEntropyLossWithReshape
 from train_utils import EmptyCudaCacheCallback
-from model import get_transformer__from_spe_config__vn1
+from model import get_model_from_configs
 from utils.get_git_commit_hash import get_git_commit_hash
 
 
@@ -304,10 +304,16 @@ def main(train_config: dict) -> None:
         no_decay_keys=train_config["optimizer"].get("no_decay_keys", None)
     )
 
-    spe_config = read_json(train_config["swipe_point_embedder_config_path"])
-    model = get_transformer__from_spe_config__vn1(
-        spe_config=spe_config,
-        n_classes= train_config["num_classes"],
+    # Load all component configs
+    input_embedding_config = read_json(train_config["swipe_point_embedder_config_path"])
+    encoder_config = read_json(train_config["encoder_config_path"])
+    decoder_config = read_json(train_config["decoder_config_path"])
+
+    model = get_model_from_configs(
+        input_embedding_config=input_embedding_config,
+        encoder_config=encoder_config,
+        decoder_config=decoder_config,
+        n_classes=train_config["num_classes"],
         n_word_tokens=len(word_tokenizer.char_to_idx),
         max_out_seq_len=train_config["max_out_seq_len"],
         device=train_config["device"]

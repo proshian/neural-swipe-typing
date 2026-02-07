@@ -14,7 +14,7 @@ from tqdm import tqdm
 from dataset import SwipeDataset, SwipeDatasetSubset
 from feature_extraction.swipe_feature_extractor_factory import swipe_feature_extractor_factory
 from logit_processors import VocabularyLogitProcessor
-from model import get_transformer__from_spe_config__vn1
+from model import get_model_from_configs
 from ns_tokenizers import CharLevelTokenizerv2, KeyboardTokenizer
 from word_generators import generator_factory
 
@@ -85,9 +85,16 @@ def predict(config: dict, num_workers: int):
         use_serialized_list=False
     )
     dataset_subset = SwipeDatasetSubset(dataset, config['grid_name'])
-    
-    model = get_transformer__from_spe_config__vn1(
-        spe_config=read_json(config['swipe_point_embedder_config_path']),
+
+    # Load all component configs
+    input_embedding_config = read_json(config['swipe_point_embedder_config_path'])
+    encoder_config = read_json(config['encoder_config_path'])
+    decoder_config = read_json(config['decoder_config_path'])
+
+    model = get_model_from_configs(
+        input_embedding_config=input_embedding_config,
+        encoder_config=encoder_config,
+        decoder_config=decoder_config,
         n_classes=config['num_classes'],
         n_word_tokens=len(subword_tokenizer.char_to_idx),
         max_out_seq_len=config['max_out_seq_len'],
