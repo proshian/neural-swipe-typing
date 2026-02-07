@@ -8,9 +8,6 @@ from modules.encoder_factory import encoder_factory
 from modules.decoder_factory import decoder_factory
 
 
-D_MODEL_V1 = 128
-
-
 
 def _get_mask(max_seq_len: int):
     """
@@ -168,6 +165,7 @@ def get_model_from_configs(
     n_classes: int,
     n_word_tokens: int,
     max_out_seq_len: int,
+    d_model: int,
     device: torch.device | str | None = None,
     weights_path: str | None = None
 ) -> EncoderDecoderTransformerLike:
@@ -194,6 +192,8 @@ def get_model_from_configs(
         Number of word tokens (vocabulary size for decoder input)
     max_out_seq_len: int
         Maximum output sequence length
+    d_model: int
+        Model dimension (must match the output dimension of the swipe point embedder)
     device: torch.device | str | None
         Device to create the model on (default: cuda if available, else cpu)
     weights_path: str | None
@@ -208,12 +208,12 @@ def get_model_from_configs(
 
     # Create all components via factories
     input_embedding = swipe_point_embedder_factory(input_embedding_config, device)
-    encoder = encoder_factory(encoder_config, D_MODEL_V1, device)
-    decoder = decoder_factory(decoder_config, D_MODEL_V1, device)
+    encoder = encoder_factory(encoder_config, d_model, device)
+    decoder = decoder_factory(decoder_config, d_model, device)
     word_char_embedding_model = get_word_char_embedder__vn1(
-        D_MODEL_V1, n_word_tokens, max_out_seq_len=max_out_seq_len,
+        d_model, n_word_tokens, max_out_seq_len=max_out_seq_len,
         dropout=0.1, device=device)
-    output_proj = nn.Linear(D_MODEL_V1, n_classes, device=device)
+    output_proj = nn.Linear(d_model, n_classes, device=device)
 
     # Assemble model
     model = EncoderDecoderTransformerLike(

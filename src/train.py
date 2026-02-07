@@ -72,12 +72,52 @@ def get_n_traj_feats(feature_extractor: MultiFeatureExtractor) -> int:
     if traj_feat_extractor is None:
         return 0
     N_COORD_FEATS = 2  # x and y
-    n_traj_feats = (N_COORD_FEATS 
+    n_traj_feats = (N_COORD_FEATS
                     + traj_feat_extractor.include_dt
                     + 2*traj_feat_extractor.include_velocities
                     + 2*traj_feat_extractor.include_accelerations)
     return n_traj_feats
-                    
+
+
+def validate_d_model(
+    d_model_config: int,
+    feature_extractor: MultiFeatureExtractor,
+    input_embedding_config: dict
+) -> int:
+    """
+    Validate d_model consistency across configs.
+
+    Arguments:
+    ----------
+    d_model_config: int
+        The d_model value specified in the training configuration
+    feature_extractor: MultiFeatureExtractor
+        Feature extractor used to compute trajectory features count
+    input_embedding_config: dict
+        Swipe point embedder configuration containing key_emb_size
+
+    Returns:
+    --------
+    d_model: int
+        The validated d_model value
+
+    Raises:
+    -------
+    ValueError
+        If d_model is not specified in config or doesn't match expected value
+    """
+    # Compute expected d_model from feature extractor and swipe point embedder configs
+    n_coord_feats = get_n_traj_feats(feature_extractor)
+    key_emb_size = input_embedding_config["params"]["key_emb_size"]
+    expected_d_model = n_coord_feats + key_emb_size
+
+    if d_model_config != expected_d_model:
+        raise ValueError(
+            f"d_model mismatch: config specifies d_model={d_model_config}, "
+            f"but feature extractor and swipe point embedder produce "
+            f"{n_coord_feats} (trajectory) + {key_emb_size} (key embedding) = {expected_d_model}"
+        )
+    logger.info(f"d_model={d_model_config} (trajectory feats: {n_coord_feats}, key_emb_size: {key_emb_size})")
 
 
 def create_lr_scheduler_ctor(scheduler_type: str, scheduler_params: dict):
@@ -309,6 +349,15 @@ def main(train_config: dict) -> None:
     encoder_config = read_json(train_config["encoder_config_path"])
     decoder_config = read_json(train_config["decoder_config_path"])
 
+    # Validate and get d_model
+    d_model = train_config.get("d_model")
+    if d_model is None:
+        raise ValueError(
+            "d_model must be specified in train config. "
+            "It should match the output dimension of the swipe point embedder."
+        )
+    validate_d_model(d_model, feature_extractor, input_embedding_config)
+
     model = get_model_from_configs(
         input_embedding_config=input_embedding_config,
         encoder_config=encoder_config,
@@ -316,12 +365,9 @@ def main(train_config: dict) -> None:
         n_classes=train_config["num_classes"],
         n_word_tokens=len(word_tokenizer.char_to_idx),
         max_out_seq_len=train_config["max_out_seq_len"],
+        d_model=d_model,
         device=train_config["device"]
     )
-
-    # n_coord_feats = get_n_traj_feats(feature_extractor)
-    # key_emb_size = train_config["swipe_point_embedder_config"]["params"]["key_emb_size"]
-    # TODO add assert that d_model == n_coord_feats + key_emb_size
 
     pl_model = LitNeuroswipeModel(
         model=model,
