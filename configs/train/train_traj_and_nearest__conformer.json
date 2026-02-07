@@ -1,8 +1,7 @@
 {
-    "logging_level": "INFO",
-    "experiment_name": "traj_and_trainable_weighted_v2",
-    "swipe_feature_extractor_factory_config_path": "./configs/feature_extractor/traj.json",
-    "swipe_point_embedder_config_path": "./configs/swipe_point_embedder/separate_traj_and_trainable_weighted_v2__6_coord.json",
+    "experiment_name": "traj_and_nearest__conformer",
+    "swipe_feature_extractor_factory_config_path": "./configs/feature_extractor/traj_and_nearest.json",
+    "swipe_point_embedder_config_path": "./configs/swipe_point_embedder/separate_traj_and_nearest__6_coord.json",
 
     "num_classes": 35,
     "max_out_seq_len": 35,
@@ -45,6 +44,8 @@
     "device": "cuda",
     "trainer_precision": "16-mixed",
     "float32_matmul_precision": "medium",
-    "encoder_config_path": "./configs/encoder/transformer_v1.json",
+
+    
+    "encoder_config_path": "./configs/encoder/conformer.json",
     "decoder_config_path": "./configs/decoder/transformer_v1.json"
 }

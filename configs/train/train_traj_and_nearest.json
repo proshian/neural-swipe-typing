@@ -5,6 +5,7 @@
 
     "num_classes": 35,
     "max_out_seq_len": 35,
+    "d_model": 128,
     "grid_name": "default",
     "grids_path": "./data/data_preprocessed/gridname_to_grid.json",
     "trajectory_features_statistics_path": "./data/data_preprocessed/trajectory_features_statistics.json",
@@ -42,5 +43,7 @@
     "val_check_interval": 3000,
     "device": "cuda",
     "trainer_precision": "16-mixed",
-    "float32_matmul_precision": "medium"
+    "float32_matmul_precision": "medium",
+    "encoder_config_path": "./configs/encoder/transformer_v1.json",
+    "decoder_config_path": "./configs/decoder/transformer_v1.json"
 }
