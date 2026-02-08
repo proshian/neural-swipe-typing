@@ -5,9 +5,6 @@ Supported encoder types:
 - "transformer_v1": Standard nn.TransformerEncoder (default, matches original implementation)
 - "conformer": torchaudio.models.Conformer with adapter for interface compatibility
 """
-
-from typing import Optional, Union
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -31,7 +28,7 @@ class ConformerEncoderAdapter(nn.Module):
         super().__init__()
         self.conformer = conformer
 
-    def forward(self, x: torch.Tensor, src_key_padding_mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, src_key_padding_mask: torch.Tensor | None = None) -> torch.Tensor:
         """
         Forward pass that adapts our interface to Conformer's interface.
 
@@ -39,8 +36,8 @@ class ConformerEncoderAdapter(nn.Module):
         ----------
         x: torch.Tensor
             Input tensor with shape (T, B, D)
-        src_key_padding_mask: torch.Tensor
-            Boolean mask with shape (B, T), True means pad
+        src_key_padding_mask: torch.Tensor | None
+            Boolean mask with shape (B, T), True means pad. If None, assumes no padding.
 
         Returns:
         --------
@@ -50,12 +47,17 @@ class ConformerEncoderAdapter(nn.Module):
         # Transpose: (T, B, D) -> (B, T, D)
         x = x.transpose(0, 1)
 
-        # Convert boolean padding mask to integer lengths
-        # src_key_padding_mask: (B, T) where True means padded
-        # We need lengths: (B,) number of valid (non-padded) frames
-        # ~src_key_padding_mask gives us True for valid positions
-        # .sum(dim=1) counts valid positions for each batch element
-        lengths = (~src_key_padding_mask).sum(dim=1).long()
+        if src_key_padding_mask is None:
+            # No padding mask provided - assume all sequences are full length
+            # lengths: (B,) where each value is the full sequence length T
+            lengths = torch.full((x.size(0),), x.size(1), dtype=torch.long, device=x.device)
+        else:
+            # Convert boolean padding mask to integer lengths
+            # src_key_padding_mask: (B, T) where True means padded
+            # We need lengths: (B,) number of valid (non-padded) frames
+            # ~src_key_padding_mask gives us True for valid positions
+            # .sum(dim=1) counts valid positions for each batch element
+            lengths = (~src_key_padding_mask).sum(dim=1).long()
 
         # Call conformer (returns (output, output_lengths))
         output, _ = self.conformer(x, lengths)
@@ -67,7 +69,7 @@ class ConformerEncoderAdapter(nn.Module):
 def _create_transformer_v1_encoder(
     d_model: int,
     params: dict,
-    device: Optional[Union[str, torch.device]] = None
+    device: str | torch.device | None = None
 ) -> nn.TransformerEncoder:
     """
     Creates a standard Transformer encoder matching the original v1 implementation.
@@ -82,7 +84,7 @@ def _create_transformer_v1_encoder(
         - num_heads: Number of attention heads (default: 4)
         - dim_feedforward: Feed-forward network dimension (default: 128)
         - dropout: Dropout probability (default: 0.1)
-    device: Optional[Union[str, torch.device]]
+    device: str | torch.device | None
         Device to create the encoder on
 
     Returns:
@@ -126,7 +128,7 @@ def _create_transformer_v1_encoder(
 def _create_conformer_encoder(
     d_model: int,
     params: dict,
-    device: Optional[Union[str, torch.device]] = None
+    device: str | torch.device | None = None
 ) -> nn.Module:
     """
     Creates a Conformer encoder with adapter for interface compatibility.
@@ -144,7 +146,7 @@ def _create_conformer_encoder(
         - dropout: Dropout probability (default: 0.0)
         - use_group_norm: Use GroupNorm instead of BatchNorm (default: False)
         - convolution_first: Apply convolution before attention (default: False)
-    device: Optional[Union[str, torch.device]]
+    device: str | torch.device | None
         Device to create the encoder on
 
     Returns:
@@ -197,7 +199,7 @@ def _create_conformer_encoder(
 def encoder_factory(
     config: dict,
     d_model: int,
-    device: Optional[Union[str, torch.device]] = None
+    device: str | torch.device | None = None
 ) -> nn.Module:
     """
     Creates an encoder from configuration.
@@ -218,7 +220,7 @@ def encoder_factory(
         - params: dict, type-specific parameters (optional)
     d_model: int
         Model dimension
-    device: Optional[Union[str, torch.device]]
+    device: str | torch.device | None
         Device to create the encoder on
 
     Returns:
