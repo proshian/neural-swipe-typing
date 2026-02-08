@@ -1,5 +1,5 @@
 {
-    "experiment_name": "traj_and_nearest__conformer",
+    "experiment_name": "traj_and_nearest__conformer1",
     "swipe_feature_extractor_factory_config_path": "./configs/feature_extractor/traj_and_nearest.json",
     "swipe_point_embedder_config_path": "./configs/swipe_point_embedder/separate_traj_and_nearest__6_coord.json",
 
@@ -34,7 +34,6 @@
         }
     },
     "path_to_continue_checkpoint": null,
-    "model_name": "v3_nearest_and_traj_transformer_bigger",
     "label_smoothing": 0.045,
     "optimizer": {
         "type": "Adam",

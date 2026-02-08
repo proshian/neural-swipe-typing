@@ -1,0 +1,35 @@
+{
+    "experiment_name": "traj_and_nearest",
+    "swipe_feature_extractor_factory_config_path": "./configs/feature_extractor/traj_and_nearest.json",
+    "swipe_point_embedder_config_path": "./configs/swipe_point_embedder/separate_traj_and_nearest__6_coord.json",
+ 
+    "model_weights_path": "./checkpoints/traj_and_nearest__conformer1/epoch_end/traj_and_nearest__conformer1-epoch=3-val_loss=0.4743-val_word_level_accuracy=0.8347.ckpt",
+    "output_path": "./results/predictions/traj_and_nearest__conformer1/default/val/traj_and_nearest__conformer1-epoch=3-val_loss=0.4743-val_word_level_accuracy=0.8347.pkl",
+
+    "device": "cpu",
+    "data_path": "./data/data_preprocessed/valid.jsonl",
+
+    "grid_name": "default",
+    "voc_path": "./data/data_preprocessed/voc.txt",
+    "keyboard_tokenizer_path": "./tokenizers/keyboard/ru.json",
+    "grids_path": "./data/data_preprocessed/gridname_to_grid.json",
+    "trajectory_features_statistics_path": "./data/data_preprocessed/trajectory_features_statistics.json",
+    "bounding_boxes_path": "./data/data_preprocessed/key_bounding_boxes.json",
+    
+    "num_classes": 35,
+    "max_out_seq_len": 35,
+    "d_model": 128,
+    "encoder_config_path": "./configs/encoder/conformer.json",
+    "decoder_config_path": "./configs/decoder/transformer_v1.json",
+
+    "use_vocab_for_generation": true,
+    "generator": {
+        "name": "beam",
+        "params": {
+            "max_steps_n": 35,
+            "beamsize": 6,
+            "normalization_factor": 0.5,
+            "return_hypotheses_n": null
+        }
+    }
+}

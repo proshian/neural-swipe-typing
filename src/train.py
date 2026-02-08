@@ -31,6 +31,24 @@ logger = logging.getLogger(__name__)
 LOG_DIR = "lightning_logs/"
 
 
+def get_config_derived_name(train_config: dict) -> str:
+    """
+    Generate a descriptive name from configuration file basenames.
+
+    Creates a name like: "traj_and_nearest__traj_and_nearest__6_coord__transformer_v1__transformer_v1"
+    from the component config paths.
+    """
+    feature_extractor_name = os.path.basename(train_config["swipe_feature_extractor_factory_config_path"]).replace(".json", "")
+    swipe_point_embedder_name = os.path.basename(train_config["swipe_point_embedder_config_path"]).replace(".json", "")
+    encoder_name = os.path.basename(train_config["encoder_config_path"]).replace(".json", "")
+    decoder_name = os.path.basename(train_config["decoder_config_path"]).replace(".json", "")
+
+    # Shorten SPE name by removing redundant "separate_" prefix
+    spe_short = swipe_point_embedder_name.replace("separate_", "")
+
+    return f"{feature_extractor_name}__{spe_short}__{encoder_name}__{decoder_name}"
+
+
 
 def _setup_logging(train_config: dict) -> None:
     """Configure logging, even if called after logger creation."""
@@ -200,16 +218,17 @@ def create_optimizer_ctor(optimizer_type: str, optimizer_kwargs: dict, no_decay_
 
 
 def get_callbacks(train_config) -> List[Callback]:
-    grid_name = train_config["grid_name"]
-    ckpt_filename = (f'{train_config["model_name"]}-{grid_name}--' 
-                     + '{epoch}-{val_loss:.3f}-{val_word_level_accuracy:.3f}')
+    experiment_name = train_config["experiment_name"]
+    # Sanitize experiment name for filename (replace / with --)
+    ckpt_name = experiment_name.replace('/', '--')
+    ckpt_filename = f'{ckpt_name}-{{epoch}}-{{val_loss:.4f}}-{{val_word_level_accuracy:.4f}}'
 
     model_checkpoint_top = ModelCheckpoint(
         monitor='val_loss', mode = 'min', save_top_k=10,
-        dirpath=f'checkpoints/{train_config["experiment_name"]}/top_10', filename=ckpt_filename)
+        dirpath=f'checkpoints/{experiment_name}/top_10', filename=ckpt_filename)
 
     model_checkpoint_on_epoch_end = ModelCheckpoint(
-        save_on_train_epoch_end = True, dirpath=f'checkpoints/{train_config["experiment_name"]}/epoch_end/',
+        save_on_train_epoch_end = True, dirpath=f'checkpoints/{experiment_name}/epoch_end/',
         save_top_k=-1,
         filename=ckpt_filename)
     
@@ -245,9 +264,9 @@ def main(train_config: dict) -> None:
     keyboard_tokenizer = KeyboardTokenizer(train_config["keyboard_tokenizer_path"])
     persistent_workers = True if train_config["dataloader_num_workers"] > 0 else False
     word_tokenizer = CharLevelTokenizerv2(train_config["vocab_path"])
-    feature_extractor_name = os.path.basename(train_config["trajectory_features_statistics_path"]).split(".")[0]
-    default_experiment_name = f"{train_config['model_name']}__{grid_name}__{feature_extractor_name}__bs_{train_config['train_batch_size']}/seed_{train_config['seed']}"
-    experiment_name = train_config.get("experiment_name", default_experiment_name)
+    config_name = get_config_derived_name(train_config)
+    default_experiment_name = f"{config_name}__bs_{train_config['train_batch_size']}/seed_{train_config['seed']}"
+    experiment_name = train_config.setdefault("experiment_name", default_experiment_name)
     word_pad_idx = word_tokenizer.char_to_idx['<pad>']
 
     # Assertions
@@ -323,7 +342,6 @@ def main(train_config: dict) -> None:
     commit_hash = get_git_commit_hash() or "git commit hash unavailable"
     with open(os.path.join(tb_logger.log_dir, "git_commit_hash.txt"), "w", encoding="utf-8") as f:
         f.write(commit_hash + "\n")
-    
 
     callbacks = get_callbacks(train_config)
 

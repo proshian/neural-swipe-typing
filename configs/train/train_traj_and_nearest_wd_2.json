@@ -34,7 +34,6 @@
         }
     },
     "path_to_continue_checkpoint": null,
-    "model_name": "v3_nearest_and_traj_transformer_bigger",
     "label_smoothing": 0.045,
     "optimizer": {
         "type": "AdamW",
