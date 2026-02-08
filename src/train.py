@@ -21,7 +21,7 @@ from feature_extraction.swipe_feature_extractors import MultiFeatureExtractor, T
 from pl_module import LitNeuroswipeModel
 from train_utils import CrossEntropyLossWithReshape
 from train_utils import EmptyCudaCacheCallback
-from model import get_transformer__from_spe_config__vn1
+from model import get_model_from_configs
 from utils.get_git_commit_hash import get_git_commit_hash
 
 
@@ -29,6 +29,24 @@ logger = logging.getLogger(__name__)
 
 
 LOG_DIR = "lightning_logs/"
+
+
+def get_config_derived_name(train_config: dict) -> str:
+    """
+    Generate a descriptive name from configuration file basenames.
+
+    Creates a name like: "traj_and_nearest__traj_and_nearest__6_coord__transformer_v1__transformer_v1"
+    from the component config paths.
+    """
+    feature_extractor_name = os.path.basename(train_config["swipe_feature_extractor_factory_config_path"]).replace(".json", "")
+    swipe_point_embedder_name = os.path.basename(train_config["swipe_point_embedder_config_path"]).replace(".json", "")
+    encoder_name = os.path.basename(train_config["encoder_config_path"]).replace(".json", "")
+    decoder_name = os.path.basename(train_config["decoder_config_path"]).replace(".json", "")
+
+    # Shorten SPE name by removing redundant "separate_" prefix
+    spe_short = swipe_point_embedder_name.replace("separate_", "")
+
+    return f"{feature_extractor_name}__{spe_short}__{encoder_name}__{decoder_name}"
 
 
 
@@ -72,12 +90,52 @@ def get_n_traj_feats(feature_extractor: MultiFeatureExtractor) -> int:
     if traj_feat_extractor is None:
         return 0
     N_COORD_FEATS = 2  # x and y
-    n_traj_feats = (N_COORD_FEATS 
+    n_traj_feats = (N_COORD_FEATS
                     + traj_feat_extractor.include_dt
                     + 2*traj_feat_extractor.include_velocities
                     + 2*traj_feat_extractor.include_accelerations)
     return n_traj_feats
-                    
+
+
+def validate_d_model(
+    d_model_config: int,
+    feature_extractor: MultiFeatureExtractor,
+    input_embedding_config: dict
+) -> int:
+    """
+    Validate d_model consistency across configs.
+
+    Arguments:
+    ----------
+    d_model_config: int
+        The d_model value specified in the training configuration
+    feature_extractor: MultiFeatureExtractor
+        Feature extractor used to compute trajectory features count
+    input_embedding_config: dict
+        Swipe point embedder configuration containing key_emb_size
+
+    Returns:
+    --------
+    d_model: int
+        The validated d_model value
+
+    Raises:
+    -------
+    ValueError
+        If d_model is not specified in config or doesn't match expected value
+    """
+    # Compute expected d_model from feature extractor and swipe point embedder configs
+    n_coord_feats = get_n_traj_feats(feature_extractor)
+    key_emb_size = input_embedding_config["params"]["key_emb_size"]
+    expected_d_model = n_coord_feats + key_emb_size
+
+    if d_model_config != expected_d_model:
+        raise ValueError(
+            f"d_model mismatch: config specifies d_model={d_model_config}, "
+            f"but feature extractor and swipe point embedder produce "
+            f"{n_coord_feats} (trajectory) + {key_emb_size} (key embedding) = {expected_d_model}"
+        )
+    logger.info(f"d_model={d_model_config} (trajectory feats: {n_coord_feats}, key_emb_size: {key_emb_size})")
 
 
 def create_lr_scheduler_ctor(scheduler_type: str, scheduler_params: dict):
@@ -160,16 +218,17 @@ def create_optimizer_ctor(optimizer_type: str, optimizer_kwargs: dict, no_decay_
 
 
 def get_callbacks(train_config) -> List[Callback]:
-    grid_name = train_config["grid_name"]
-    ckpt_filename = (f'{train_config["model_name"]}-{grid_name}--' 
-                     + '{epoch}-{val_loss:.3f}-{val_word_level_accuracy:.3f}')
+    experiment_name = train_config["experiment_name"]
+    # Sanitize experiment name for filename (replace / with --)
+    ckpt_name = experiment_name.replace('/', '--')
+    ckpt_filename = f'{ckpt_name}-{{epoch}}-{{val_loss:.4f}}-{{val_word_level_accuracy:.4f}}'
 
     model_checkpoint_top = ModelCheckpoint(
         monitor='val_loss', mode = 'min', save_top_k=10,
-        dirpath=f'checkpoints/{train_config["experiment_name"]}/top_10', filename=ckpt_filename)
+        dirpath=f'checkpoints/{experiment_name}/top_10', filename=ckpt_filename)
 
     model_checkpoint_on_epoch_end = ModelCheckpoint(
-        save_on_train_epoch_end = True, dirpath=f'checkpoints/{train_config["experiment_name"]}/epoch_end/',
+        save_on_train_epoch_end = True, dirpath=f'checkpoints/{experiment_name}/epoch_end/',
         save_top_k=-1,
         filename=ckpt_filename)
     
@@ -205,9 +264,9 @@ def main(train_config: dict) -> None:
     keyboard_tokenizer = KeyboardTokenizer(train_config["keyboard_tokenizer_path"])
     persistent_workers = True if train_config["dataloader_num_workers"] > 0 else False
     word_tokenizer = CharLevelTokenizerv2(train_config["vocab_path"])
-    feature_extractor_name = os.path.basename(train_config["trajectory_features_statistics_path"]).split(".")[0]
-    default_experiment_name = f"{train_config['model_name']}__{grid_name}__{feature_extractor_name}__bs_{train_config['train_batch_size']}/seed_{train_config['seed']}"
-    experiment_name = train_config.get("experiment_name", default_experiment_name)
+    config_name = get_config_derived_name(train_config)
+    default_experiment_name = f"{config_name}__bs_{train_config['train_batch_size']}/seed_{train_config['seed']}"
+    experiment_name = train_config.setdefault("experiment_name", default_experiment_name)
     word_pad_idx = word_tokenizer.char_to_idx['<pad>']
 
     # Assertions
@@ -283,7 +342,6 @@ def main(train_config: dict) -> None:
     commit_hash = get_git_commit_hash() or "git commit hash unavailable"
     with open(os.path.join(tb_logger.log_dir, "git_commit_hash.txt"), "w", encoding="utf-8") as f:
         f.write(commit_hash + "\n")
-    
 
     callbacks = get_callbacks(train_config)
 
@@ -304,18 +362,30 @@ def main(train_config: dict) -> None:
         no_decay_keys=train_config["optimizer"].get("no_decay_keys", None)
     )
 
-    spe_config = read_json(train_config["swipe_point_embedder_config_path"])
-    model = get_transformer__from_spe_config__vn1(
-        spe_config=spe_config,
-        n_classes= train_config["num_classes"],
+    # Load all component configs
+    input_embedding_config = read_json(train_config["swipe_point_embedder_config_path"])
+    encoder_config = read_json(train_config["encoder_config_path"])
+    decoder_config = read_json(train_config["decoder_config_path"])
+
+    # Validate and get d_model
+    d_model = train_config.get("d_model")
+    if d_model is None:
+        raise ValueError(
+            "d_model must be specified in train config. "
+            "It should match the output dimension of the swipe point embedder."
+        )
+    validate_d_model(d_model, feature_extractor, input_embedding_config)
+
+    model = get_model_from_configs(
+        input_embedding_config=input_embedding_config,
+        encoder_config=encoder_config,
+        decoder_config=decoder_config,
+        n_classes=train_config["num_classes"],
         n_word_tokens=len(word_tokenizer.char_to_idx),
         max_out_seq_len=train_config["max_out_seq_len"],
+        d_model=d_model,
         device=train_config["device"]
     )
-
-    # n_coord_feats = get_n_traj_feats(feature_extractor)
-    # key_emb_size = train_config["swipe_point_embedder_config"]["params"]["key_emb_size"]
-    # TODO add assert that d_model == n_coord_feats + key_emb_size
 
     pl_model = LitNeuroswipeModel(
         model=model,

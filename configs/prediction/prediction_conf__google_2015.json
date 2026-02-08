@@ -18,6 +18,9 @@
     
     "num_classes": 35,
     "max_out_seq_len": 35,
+    "d_model": 128,
+    "encoder_config_path": "./configs/encoder/transformer_v1.json",
+    "decoder_config_path": "./configs/decoder/transformer_v1.json",
 
     "use_vocab_for_generation": true,
     "generator": {

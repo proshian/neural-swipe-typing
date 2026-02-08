@@ -3,8 +3,8 @@
     "swipe_feature_extractor_factory_config_path": "./configs/feature_extractor/traj_and_nearest.json",
     "swipe_point_embedder_config_path": "./configs/swipe_point_embedder/separate_traj_and_nearest__6_coord.json",
  
-    "model_weights_path": "./model_states/traj_and_nearest/epoch_end/v3_nearest_and_traj_transformer_bigger-default--epoch=36-val_loss=0.441-val_word_level_accuracy=0.872.pt",
-    "output_path": "./results/predictions/traj_and_nearest/default/val/v3_nearest_and_traj_transformer_bigger-default--epoch=36-val_loss=0.441-val_word_level_accuracy=0.872.pkl",
+    "model_weights_path": "./checkpoints/traj_and_nearest__conformer1/epoch_end/traj_and_nearest__conformer1-epoch=3-val_loss=0.4743-val_word_level_accuracy=0.8347.ckpt",
+    "output_path": "./results/predictions/traj_and_nearest__conformer1/default/val/traj_and_nearest__conformer1-epoch=3-val_loss=0.4743-val_word_level_accuracy=0.8347.pkl",
 
     "device": "cpu",
     "data_path": "./data/data_preprocessed/valid.jsonl",
@@ -19,7 +19,7 @@
     "num_classes": 35,
     "max_out_seq_len": 35,
     "d_model": 128,
-    "encoder_config_path": "./configs/encoder/transformer_v1.json",
+    "encoder_config_path": "./configs/encoder/conformer.json",
     "decoder_config_path": "./configs/decoder/transformer_v1.json",
 
     "use_vocab_for_generation": true,
