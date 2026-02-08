@@ -43,9 +43,8 @@ def parse_args() -> argparse.Namespace:
 def load_colors(colors_path: Optional[str]) -> dict[str, str]:
     if not colors_path:
         return {}
-    try:
-        with open(colors_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+    with open(colors_path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 def get_version_dirs(experiment_dir: Path) -> list[Path]:
