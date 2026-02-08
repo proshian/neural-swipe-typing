@@ -28,8 +28,14 @@ Try out a live demo with a trained model from the competition through this [web 
 
 ## Android Library
 
-There is an [Android library](https://github.com/proshian/neural-swipe-keyboard-android) that aims to help to integrate models from this repository into android keyboards
-The library expects that the model is exported via executorch (as in `executorch_investigation` branch of this repository)
+There is an [Android library](https://github.com/proshian/neural-swipe-keyboard-android) that aims to help to integrate models from this repository into android keyboards.
+
+The library expects that the model is exported via ExecutorTorch (export script available at [`src/executorch_export.py`](src/executorch_export.py)).
+
+> [!IMPORTANT]
+> **Compatibility Notice**: The Android library is currently outdated. While the library includes an exported model that works with it, models exported from the current version of this training repository are **not compatible** with the library.
+>
+> If you need to export models for use with the Android library, use the [`executorch_investigation`](https://github.com/proshian/nst-claude/tree/executorch_investigation) branch of this repository, which is in a state compatible with the library.
 
 ## Report
 
