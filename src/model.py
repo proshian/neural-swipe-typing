@@ -1,4 +1,6 @@
 
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 
@@ -128,6 +130,13 @@ def _get_device(device: torch.device | str | None = None) -> torch.device:
     )
 
 
+def _remove_prefix(text: str, prefix: str) -> str:
+    """Remove prefix from text if present, otherwise return text unchanged."""
+    if text.startswith(prefix):
+        return text[len(prefix):]
+    return text
+
+
 def _set_state(model: nn.Module,
                weights_path: str,
                device: torch.device | str | None = None
@@ -141,7 +150,7 @@ def _set_state(model: nn.Module,
     model: nn.Module
         Model to load weights into
     weights_path: str
-        Path to weights file (optional)
+        Path to weights file (optional). Supports .pt (raw state dict) or .ckpt (Lightning checkpoint)
     device: torch.device | str | None
         Device to load the model onto
 
@@ -149,10 +158,22 @@ def _set_state(model: nn.Module,
     --------
     model: nn.Module
         Model with loaded weights (if provided) and on the correct device
+
+    Raises:
+    -------
+    ValueError
+        If weights_path has an unsupported file extension
     """
     if weights_path:
-        model.load_state_dict(
-            torch.load(weights_path, map_location=device, weights_only=True))
+        ext = Path(weights_path).suffix
+        if ext == ".pt":
+            state_dict = torch.load(weights_path, map_location=device, weights_only=True)
+        elif ext == ".ckpt":
+            ckpt = torch.load(weights_path, map_location=device, weights_only=False)
+            state_dict = {_remove_prefix(k, 'model.'): v for k, v in ckpt['state_dict'].items()}
+        else:
+            raise ValueError(f"Unexpected file extension: {ext}. Supported extensions: .pt, .ckpt")
+        model.load_state_dict(state_dict)
     model = model.to(device)
     model = model.eval()
     return model
