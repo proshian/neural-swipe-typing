@@ -36,6 +36,7 @@ class LitNeuroswipeModel(LightningModule):
         self.lr_scheduler_ctor = lr_scheduler_ctor
 
         self.model = model
+        self.model.train()
         self.criterion = criterion
         self.word_pad_idx = word_pad_idx
 

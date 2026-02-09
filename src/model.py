@@ -175,7 +175,6 @@ def _set_state(model: nn.Module,
             raise ValueError(f"Unexpected file extension: {ext}. Supported extensions: .pt, .ckpt")
         model.load_state_dict(state_dict)
     model = model.to(device)
-    model = model.eval()
     return model
 
 
