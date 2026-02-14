@@ -14,6 +14,7 @@ from lightning.pytorch import seed_everything
 from torch.utils.data import DataLoader
 from lightning.pytorch import loggers as pl_loggers
 import hydra
+from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 
 from dataset import CollateFn, SwipeDataset, SwipeDatasetSubset
@@ -31,9 +32,13 @@ logger = logging.getLogger(__name__)
 
 def get_config_derived_name(cfg: DictConfig) -> str:
     """
-    Generate experiment name from resolved config's type fields.
+    Generate experiment name from resolved config's type fields and CLI overrides.
 
-    Uses the 'type' field from each component config to build a descriptive name.
+    Uses the 'type' field from each component config to build a descriptive name,
+    then appends any CLI overrides for full reproducibility visibility.
+
+    Example output:
+    trajectory+nearest_key__traj_and_nearest__conformer__transformer_v1__encoder.params.dropout=0.2
     """
     encoder_name = cfg.encoder.type
     decoder_name = cfg.decoder.type
@@ -42,7 +47,16 @@ def get_config_derived_name(cfg: DictConfig) -> str:
     feature_extractor_types = [fe.type for fe in cfg.feature_extractor]
     fe_name = "+".join(feature_extractor_types)
 
-    return f"{fe_name}__{spe_name}__{encoder_name}__{decoder_name}"
+    base_name = f"{fe_name}__{spe_name}__{encoder_name}__{decoder_name}"
+
+    # Get CLI overrides from Hydra and append them to the name
+    overrides = HydraConfig.get().overrides.task
+    if overrides:
+        # Sort for consistent ordering
+        overrides_str = "__".join(sorted(overrides))
+        return f"{base_name}__{overrides_str}"
+
+    return base_name
 
 
 def _setup_logging(logging_level: str = "INFO") -> None:
