@@ -1,0 +1,9 @@
+type: conformer
+params:
+  num_heads: 4
+  ffn_dim: 128
+  num_layers: 4
+  depthwise_conv_kernel_size: 31
+  dropout: 0.1
+  use_group_norm: false
+  convolution_first: false

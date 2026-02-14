@@ -1,0 +1,10 @@
+# Trajectory + nearest key with 4 coordinate features (no accelerations)
+- type: trajectory
+  params:
+    include_dt: false
+    include_velocities: true
+    include_accelerations: false
+
+- type: nearest_key
+  params:
+    use_lookup: true

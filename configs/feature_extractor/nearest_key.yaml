@@ -1,0 +1,4 @@
+# Nearest key only feature extraction
+- type: nearest_key
+  params:
+    use_lookup: true

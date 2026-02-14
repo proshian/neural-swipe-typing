@@ -1,8 +1,0 @@
-[
-    {
-        "type": "nearest_key",
-        "params": {
-            "use_lookup": true
-        }
-    }
-]

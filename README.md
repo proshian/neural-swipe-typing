@@ -167,10 +167,21 @@ You may want to clean the data from outliers and errors  using `src\data_obtaini
 ## Training
 
 
-Use train.py with a train config. Example:
+Train with the default config (uses configs/train.yaml):
 ```sh
-python -m src.train --train_config configs/train/train_traj_and_nearest.json
+python src/train.py
 ```
+
+Train with a custom config:
+```sh
+python src/train.py --config-name experiment/traj_and_nearest_conformer
+```
+
+Override config values
+```sh
+python src/train.py --config-name experiment/traj_and_nearest_conformer encoder.params.dropout=0.2 decoder.params.dropout=0.2
+```
+
 
 You can also use as [train_for_kaggle.ipynb](src/train_for_kaggle.ipynb) jupyter notebook (for example if you want to do the training in kaggle).
 

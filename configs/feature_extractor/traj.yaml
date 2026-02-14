@@ -1,0 +1,6 @@
+# Trajectory-only feature extraction
+- type: trajectory
+  params:
+    include_dt: false
+    include_velocities: true
+    include_accelerations: true

@@ -1,0 +1,9 @@
+# @package _global_
+
+defaults:
+  - /train
+  - override /encoder: transformer_v1
+  - override /decoder: transformer_v1
+  - override /swipe_point_embedder: separate_traj_and_nearest__3_coord
+  - override /feature_extractor: google_2015
+  - _self_

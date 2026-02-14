@@ -1,0 +1,16 @@
+# @package _global_
+
+defaults:
+  - /train
+  - override /encoder: transformer_v1
+  - override /decoder: transformer_v1
+  - override /swipe_point_embedder: separate_traj_and_nearest__6_coord
+  - override /feature_extractor: traj_and_nearest
+  - _self_
+
+optimizer:
+  type: AdamW
+  params:
+    lr: 1.0e-4
+    weight_decay: 0.0001
+  no_decay_keys: null
