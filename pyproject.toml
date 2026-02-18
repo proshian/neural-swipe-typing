@@ -6,17 +6,13 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     # Core ML
-    "torch>=2.10.0",
-    "torchaudio>=2.10.0",    # Conformer support
-
+    "torch>=2.10.0", # Conformer support
     # Configuration
     "hydra-core>=1.3.2",
     "omegaconf>=2.3.0",
-
     # Logging & monitoring
     "tensorboard>=2.20.0",
     "tqdm>=4.67.3",
-
     "numpy>=2.4.2",
     "pandas>=3.0.0",
     "matplotlib>=3.10.8",
@@ -30,9 +26,6 @@ explicit = true
 
 [tool.uv.sources]
 torch = [
-  { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
-]
-torchaudio = [
   { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
 
