@@ -255,6 +255,9 @@ def main(cfg: DictConfig) -> None:
     default_experiment_name = config_name
     experiment_name = cfg.get("experiment_name", default_experiment_name)
 
+    if cfg.get("experiment_name_suffix"):
+        experiment_name = f"{experiment_name}__{cfg.experiment_name_suffix}"
+
     # Assertions
     assert 1 <= cfg.num_classes <= len(word_tokenizer.char_to_idx), \
         "num_classes should be between 1 and the number of tokens in the vocabulary"
@@ -310,6 +313,11 @@ def main(cfg: DictConfig) -> None:
 
     # Save configs and metadata for reproducibility
     os.makedirs(tb_logger.log_dir, exist_ok=True)
+
+    # Keep experiment_name in training config so prediction configs that 
+    # inherit from it will also include the experiment_name.
+    # (required and propagated to evaluation as metdata within predictions).
+    cfg.experiment_name = experiment_name
 
     # Save as YAML (Hydra native)
     config_yaml_path = os.path.join(tb_logger.log_dir, "config.yaml")
