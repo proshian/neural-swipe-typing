@@ -52,9 +52,12 @@ def get_config_derived_name(cfg: DictConfig) -> str:
     # Get CLI overrides from Hydra and append them to the name
     overrides = HydraConfig.get().overrides.task
     if overrides:
-        # Sort for consistent ordering
-        overrides_str = "__".join(sorted(overrides))
-        return f"{base_name}__{overrides_str}"
+        OVERRIDES_TO_EXCLUDE_FROM_NAME = tuple(["experiment_name_suffix"])
+        filtered_overrides = [o for o in overrides if not o.startswith(OVERRIDES_TO_EXCLUDE_FROM_NAME)]
+        if filtered_overrides:
+            # Sort for consistent ordering
+            overrides_str = "__".join(sorted(filtered_overrides))
+            return f"{base_name}__{overrides_str}"
 
     return base_name
 
@@ -234,7 +237,7 @@ def main(cfg: DictConfig) -> None:
     _setup_logging(logging_level)
 
     # Print the resolved config
-    logger.info(f"Resolved config:\n{OmegaConf.to_yaml(cfg)}")
+    logger.info(f"Resolved config (before programmatic modifications):\n{OmegaConf.to_yaml(cfg)}")
 
     # Convert Hydra configs to dicts for factory functions
     encoder_config = OmegaConf.to_container(cfg.encoder, resolve=True)
@@ -253,9 +256,9 @@ def main(cfg: DictConfig) -> None:
 
     config_name = get_config_derived_name(cfg)
     default_experiment_name = config_name
-    experiment_name = cfg.get("experiment_name", default_experiment_name)
+    experiment_name = cfg.experiment_name if cfg.experiment_name is not None else default_experiment_name
 
-    if cfg.get("experiment_name_suffix"):
+    if cfg.experiment_name_suffix:
         experiment_name = f"{experiment_name}__{cfg.experiment_name_suffix}"
 
     # Assertions

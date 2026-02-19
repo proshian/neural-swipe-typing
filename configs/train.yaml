@@ -20,6 +20,14 @@ dataset_paths:
   train: ./data/data_preprocessed/train_filtered.jsonl
   val: ./data/data_preprocessed/valid.jsonl
 
+
+# Experiment naming (auto-derived if not specified)
+experiment_name: null
+experiment_name_suffix: null
+
+train_total: 5591814
+val_total: 10000
+
 train_batch_size: 256
 val_batch_size: 512
 dataloader_num_workers: 4
