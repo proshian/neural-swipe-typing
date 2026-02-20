@@ -1,65 +1,105 @@
-import sys; import os; sys.path.insert(1, os.path.join(os.getcwd(), "src"))
+"""Run predict.py for all checkpoints in the directory containing model_weights_path.
 
-import os
-import json
-import argparse
-
+Usage: python src/predict_all_epochs.py model_weights_path=<path> [other predict.py args...]
+"""
 import logging
+import subprocess
+import sys
+from pathlib import Path
 
-from predict import predict
+import hydra
+from hydra.utils import get_original_cwd
+from omegaconf import DictConfig, OmegaConf
+
+log = logging.getLogger(__name__)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Generate predictions for all model checkpoints in the config's directory.")
-    parser.add_argument('--config', type=str, required=True, help='Path to the base prediction config file.')
-    parser.add_argument('--device', type=str, default='cuda', help='Device to use for prediction (e.g., cuda, cpu).')
-    parser.add_argument('--num-workers', type=int, default=1, help='Number of worker processes for prediction.')
-    args = parser.parse_args()
+def find_checkpoints(ckpt_dir: Path) -> list[Path]:
+    """Find all .pt and .ckpt files in the directory, sorted by modification time."""
+    checkpoints = list(ckpt_dir.glob("*.pt")) + list(ckpt_dir.glob("*.ckpt"))
+    checkpoints = sorted(checkpoints, key=lambda p: p.stat().st_mtime)
+    return checkpoints
 
-    with open(args.config, 'r') as f:
-        base_config = json.load(f)
 
-    # Assume checkpoints are in the same directory as the config file
-    ckpt_dir = os.path.dirname(os.path.abspath(base_config['model_weights_path']))
-    
-    checkpoint_files = [os.path.join(ckpt_dir, f)
-                        for f in os.listdir(ckpt_dir)
-                        if f.endswith(('.pt'))]
+def get_output_dir(train_cfg: dict, cfg: DictConfig) -> str:
+    """Get output directory: results/predictions/{exp_name}/{data_name}/{grid_name}/"""
+    exp_name = train_cfg.get("experiment_name", "unknown")
+    data_name = Path(cfg.data_path).stem
+    grid_name = train_cfg.get("grid_name", "default")
+    return f"results/predictions/{exp_name}/{data_name}/{grid_name}"
 
-    if not checkpoint_files:
-        raise FileNotFoundError(f"No .pt files found in the checkpoint directory: {ckpt_dir}")
 
-    output_dir = os.path.dirname(base_config['output_path'])
-    os.makedirs(output_dir, exist_ok=True)
+@hydra.main(version_base=None, config_path="../configs", config_name="predict_from_train")
+def main(cfg: DictConfig) -> None:
+    original_cwd = get_original_cwd()
 
-    for ckpt_path in checkpoint_files:
-        logging.info(f"Processing checkpoint: {ckpt_path}")
+    if not cfg.model_weights_path:
+        print("Error: model_weights_path is required")
+        sys.exit(1)
+    if not cfg.train_config_path:
+        print("Error: train_config_path is required")
+        sys.exit(1)
+    if not cfg.data_path:
+        print("Error: data_path is required")
+        sys.exit(1)
 
-        # Generate a clean output filename from the checkpoint name
-        ckpt_filename_no_ext = os.path.basename(ckpt_path).rsplit('.', 1)[0]
-        output_filename = f"{ckpt_filename_no_ext}.pkl"
-        output_path = os.path.join(output_dir, output_filename)
+    # Resolve paths for filesystem operations
+    model_weights_path = cfg.model_weights_path
+    train_config_path = cfg.train_config_path
 
-        if os.path.exists(output_path):
-            logging.info(f"Output file already exists, skipping: {output_path}")
+    if not Path(model_weights_path).is_absolute():
+        model_weights_path = str(Path(original_cwd) / model_weights_path)
+    if not Path(train_config_path).is_absolute():
+        train_config_path = str(Path(original_cwd) / train_config_path)
+
+    # Load train config to get experiment_name and grid_name
+    train_cfg = OmegaConf.to_container(OmegaConf.load(train_config_path), resolve=True)
+    output_dir = get_output_dir(train_cfg, cfg)
+
+    ckpt_dir = Path(model_weights_path).parent
+    checkpoints = find_checkpoints(ckpt_dir)
+
+    if not checkpoints:
+        log.error(f"No .pt or .ckpt files found in {ckpt_dir}")
+        sys.exit(1)
+
+    log.info(f"Found {len(checkpoints)} checkpoints in {ckpt_dir}")
+    log.info(f"Output directory: {output_dir}")
+
+    # Build base command from CLI args (excluding model_weights_path and output_path)
+    base_cmd = [sys.executable, "src/predict.py"]
+    for arg in sys.argv[1:]:
+        key = arg.split("=", 1)[0] if "=" in arg else None
+        if key not in ("model_weights_path", "output_path"):
+            base_cmd.append(arg)
+
+    for ckpt_path in checkpoints:
+        ckpt_name = ckpt_path.stem
+        output_path = f"{output_dir}/{ckpt_name}.pkl"
+
+        if Path(output_path).exists():
+            log.info(f"Skipping {ckpt_name} - output already exists: {output_path}")
             continue
 
-        # Create a config for the current checkpoint in memory
-        temp_config = base_config.copy()
-        temp_config['model_weights_path'] = ckpt_path
-        temp_config['output_path'] = output_path
-        temp_config['device'] = args.device
+        log.info(f"Processing checkpoint: {ckpt_name}")
 
-        logging.info(f"Temporary config for {ckpt_path}: {temp_config}")
-        
-        # Run the prediction function directly
+        # Escape = for Hydra
+        ckpt_path_escaped = str(ckpt_path).replace("=", "\\=")
+        output_path_escaped = output_path.replace("=", "\\=")
+
+        cmd = base_cmd + [
+            f"model_weights_path={ckpt_path_escaped}",
+            f"output_path={output_path_escaped}",
+        ]
+
+        log.info(f"Running: {' '.join(cmd)}")
+
         try:
-            logging.info(f"Running predictions for {ckpt_path}...")
-            predict(temp_config, args.num_workers)
-            logging.info(f"Finished predictions. Output saved to {output_path}")
-        except Exception as e:
-            logging.error(f"Failed to process checkpoint {ckpt_path}: {e}", exc_info=True)
+            subprocess.run(cmd, cwd=original_cwd, check=True)
+            log.info(f"Completed: {ckpt_name}")
+        except subprocess.CalledProcessError as e:
+            log.error(f"Failed processing {ckpt_name}: {e}")
+
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     main()
