@@ -1,0 +1,6 @@
+{
+    "output_csv_path": "./results/evaluation_results.csv",
+    "prediction_paths": [
+        "results/predictions"
+    ]
+}
