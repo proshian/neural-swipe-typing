@@ -48,15 +48,13 @@ The library expects that the model is exported via ExecutorTorch (export script 
 For in-depth insights, you can refer to my [master's thesis](https://drive.google.com/file/d/1ad9zlfgfy6kOA-41GxjUQIzr8cWuaqxL/view?usp=sharing) (in Russian)
 
 
-## Prerequisites
+## Setup
 
-Install the dependencies:
-
+Set up a virtual environment and install dependencies:
 ```sh
-pip install -r requirements/requirements.txt
+pip3 install uv  
+uv sync --all-extras
 ```
-
-* The code has been tested with python 3.10, 3.11 and 3.12
 
 ## Yandex Cup Dataset: Obtaining and Preparation
 
@@ -79,7 +77,7 @@ If you prefer to skip the lengthy preprocessing steps, you can directly download
 
 ```sh
 cd src
-python ./data_obtaining_and_preprocessing/download_dataset_preprocessed.py
+uv run ./data_obtaining_and_preprocessing/download_dataset_preprocessed.py
 ```
 
 
@@ -169,17 +167,17 @@ You may want to clean the data from outliers and errors  using `src\data_obtaini
 
 Train with the default config (uses configs/train.yaml):
 ```sh
-python src/train.py
+uv run src/train.py
 ```
 
 Train with a custom config:
 ```sh
-python src/train.py --config-name experiment/traj_and_nearest_conformer
+uv run src/train.py --config-name experiment/traj_and_nearest_conformer
 ```
 
 Override config values
 ```sh
-python src/train.py --config-name experiment/traj_and_nearest_conformer encoder.params.dropout=0.2 decoder.params.dropout=0.2
+uv run src/train.py --config-name experiment/traj_and_nearest_conformer encoder.params.dropout=0.2 decoder.params.dropout=0.2
 ```
 
 
@@ -188,44 +186,95 @@ You can also use as [train_for_kaggle.ipynb](src/train_for_kaggle.ipynb) jupyter
 
 ## Prediction
 
-You may want to extract model states from checkpoints using the provided `ckpt_to_pt.py` script.
-```sh
-python -m src.utils.ckpt_to_pt --ckpt-path checkpoints --out-path model_states
-```
-
 [word_generation_demo.ipynb](src/word_generation_demo.ipynb) serves as an example on how to predict via a trained model.
 
-[predict.py](src/predict.py) is used to obtain word candidates for a whole dataset and pickle them
+[predict.py](src/predict.py) is used to obtain word candidates for a whole dataset and pickle them.
 
-predict.py usage example:
+### Inheriting from train config (recommended)
 
-```sh
-python src/predict.py --config configs/prediction/prediction_conf__traj_and_nearest.json --num-workers 4
-```
+When predicting with a trained model, inherit the architecture from the saved train config:
 
 ```sh
-python -m src.predict_all_epochs --config configs/prediction/prediction_conf__traj_and_nearest.json  --num-workers 4
+uv run src/predict.py --config-name predict_from_train \
+  train_config_path="./lightning_logs/experiment_name/version_1/config.yaml" \
+  model_weights_path="./model_states/model.pt" \
 ```
+
+>[!Tip]
+> Remember to escape all `=` signs in paths (train config path, model weights path, output path) with `\` to avoid parsing errors.
+
+>[!Tip]
+> `model_weights_path` can be either a `.ckpt` checkpoint file (includes more than just weights: optimizer state etc.) from lightning checkpoints or a `.pt` file with the model's state_dict. 
+
+
+The output path is auto-derived: `results/predictions/{experiment_name}/{data_name}/{grid_name}/{checkpoint_name}.pkl`. Can be overridden by providing `output_path` in the config or via CLI.
+
+
+Override any setting via CLI:
+
+```sh
+uv run src/predict.py --config-name predict_from_train \
+  ... \
+  generator.params.beamsize=10 \
+  device=cpu
+```
+
+
+### Manual prediction config
+
+You can also use self-contained config without inheriting from train config like the example `configs/predict_standalone_example.yaml`. Again, you can override any setting via CLI:
+
+```sh
+uv run src/predict.py \
+  --config-name predict \
+  model_weights_path=./model_states/model.pt \
+  data_path=./data/test.jsonl \
+  encoder=conformer
+```
+
 
 >[!Tip]
 > On some systems you may find that multiprocessing with `num_workers > 0` is slower than `num_workers = 0`. Try both options to see which one works better for you.
 
+
+### Predicting for all epochs
+
+Any of the above methods can be used to predict for a single checkpoint. To predict for all checkpoints in a directory, use `predict_all_epochs.py`. It runs `predict.py` as a subprocess for each checkpoint found in the parent directory of `model_weights_path`, passing through all other arguments unchanged. The `model_weights_path` is required to be passed as a cli argument and is replaced with each checkpoint path (`*.pt` or `*.ckpt`) sequentially.
+
+Example:
+
+```sh 
+uv run src/predict_all_epochs.py \
+  --config-name predict_from_train \
+  train_config_path="./lightning_logs/experiment_name/version_1/config.yaml" \
+  model_weights_path="./checkpoints/experiment_name/epoch_end/model.ckpt"
+```
+
+
 ## Evaluation
 
 ```sh
-python -m src.evaluate --config configs/config_evaluation.json
+uv run -m src.evaluate --config configs/config_evaluation.json
 ```
 
 ## Plot metrics
 
 Plot metrics from a CSV file obtained during evaluation (evaluate.py):
 ```sh
-python -m src.plot_metrics --csv results/evaluation_results.csv --metrics accuracy mmr --output_dir results/plots --colors_config configs/experiment_colors.json
+uv run -m src.plot_metrics --csv results/evaluation_results.csv --metrics accuracy mmr --output_dir results/plots --colors_config configs/experiment_colors.json
 ```
 
 Plot metrics from TensorBoard logs obtained during training (train.py):
 ```sh
-python -m src.plot_tb_metrics --tb_logdir_root lightning_logs --output_dir results/plots/tb --colors_config configs/experiment_colors.json
+uv run -m src.plot_tb_metrics --tb_logdir_root lightning_logs --output_dir results/plots/tb --colors_config configs/experiment_colors.json
+```
+
+### Extracting model weights from a lightning checkpoint
+
+You may want to extract the model weights from a lightning checkpoint (for example to share more lightweight .pt files instead of bulky .ckpt files with all the training state). Use the following script:
+
+```sh
+uv run -m src.utils.ckpt_to_pt --ckpt-path checkpoints --out-path model_states
 ```
 
 
