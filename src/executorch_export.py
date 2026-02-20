@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         '--train_config', type=str, required=True,
-        help='Path to the training config JSON file'
+        help='Path to the training config JSON file (saved in lightning_logs/version_x/config.json)'
     )
     parser.add_argument(
         '--output_path', type=str, default=None,
@@ -96,16 +96,13 @@ def create_swipe_feature_extractor_from_config(config: dict) -> MultiFeatureExtr
     grid = grids[config['grid_name']]
     trajectory_stats = read_json(config['trajectory_features_statistics_path'])
     bounding_boxes = read_json(config['bounding_boxes_path'])
-    swipe_feature_extractor_config = read_json(
-        config['swipe_feature_extractor_factory_config_path']
-    )
     feature_extractor = swipe_feature_extractor_factory(
         grid=grid,
         keyboard_tokenizer=KeyboardTokenizer(config['keyboard_tokenizer_path']),
         trajectory_features_statistics=trajectory_stats,
         bounding_boxes=bounding_boxes,
         grid_name=config['grid_name'],
-        component_configs=swipe_feature_extractor_config
+        component_configs=config['feature_extractor']
     )
     return feature_extractor
 
@@ -113,16 +110,14 @@ def create_swipe_feature_extractor_from_config(config: dict) -> MultiFeatureExtr
 
 def create_model_from_config(config: dict,
                              d_model: int,
-                             device: str, 
+                             device: str,
                              word_tokenizer: CharLevelTokenizerv2,
                              checkpoint_path: str) -> EncoderDecoderTransformerLike:
 
-    input_embedding_config = read_json(config['swipe_point_embedder_config_path'])
-
     model = get_model_from_configs(
-        input_embedding_config=input_embedding_config,
-        encoder_config=read_json(config['encoder_config_path']),
-        decoder_config=read_json(config['decoder_config_path']),
+        input_embedding_config=config['swipe_point_embedder'],
+        encoder_config=config['encoder'],
+        decoder_config=config['decoder'],
         n_classes=config['num_classes'],
         n_word_tokens=len(word_tokenizer.char_to_idx),
         max_out_seq_len=config['max_out_seq_len'],
@@ -239,7 +234,7 @@ def main():
             "d_model must be specified in config. "
             "It should match the output dimension of the swipe point embedder."
         )
-    validate_d_model(d_model, feature_extractor, read_json(train_config['swipe_point_embedder_config_path']))    
+    validate_d_model(d_model, feature_extractor, train_config['swipe_point_embedder'])    
 
     model = create_model_from_config(train_config, 
                                      d_model=d_model, 
