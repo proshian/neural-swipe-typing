@@ -251,6 +251,34 @@ uv run src/predict_all_epochs.py \
 ```
 
 
+## Exporting for Android (ExecuTorch)
+
+Models can be exported to ExecuTorch format (`.pte` files) for deployment on Android devices using the [Android library](https://github.com/proshian/neural-swipe-keyboard-android).
+
+>[!IMPORTANT]
+> **Compatibility Notice**: The Android library is currently outdated. Models exported from the current version of this repository are **not compatible** with the library. If you need to export models for use with the Android library, use the [`executorch_investigation`](https://github.com/proshian/nst-claude/tree/executorch_investigation) branch.
+
+### Basic Export
+
+```sh
+uv run -m src.executorch_export \
+  --train_config ./trining_run_dir_path/config.json \
+  --checkpoint_path ./model_states/model.pt
+```
+
+This exports the model using the XNNPACK backend (default) to `./results/executorch_models/{checkpoint_stem}__xnnpack.pte`.
+
+### Arguments
+
+| Argument | Required | Description |
+|----------|----------|-------------|
+| `--train_config` | Yes | Path to the training config JSON file |
+| `--checkpoint_path` | Yes | Path to model checkpoint (`.ckpt` or `.pt`) |
+| `--output_path` | No | Output path for `.pte` file (default: `./results/executorch_models/{checkpoint_stem}__{backend}.pte`) |
+| `--backend` | No | Backend: `xnnpack` (default) or `raw` |
+
+The export script automatically verifies that the exported model produces matching outputs to the original PyTorch model.
+
 ## Evaluation
 
 ```sh
