@@ -138,7 +138,7 @@ def create_lr_scheduler_ctor(scheduler_type: str, scheduler_params: dict):
     return get_lr_scheduler
 
 
-def create_optimizer_ctor(optimizer_type: str, optimizer_kwargs: dict, no_decay_keys: List[str] = None):
+def create_optimizer_ctor(optimizer_type: str, optimizer_kwargs: dict, no_decay_keys: List[str] | None = None):
     """
     Create optimizer constructor with configurable weight decay exclusion.
     """
