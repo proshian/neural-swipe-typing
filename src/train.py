@@ -96,7 +96,7 @@ def validate_d_model(
     d_model_config: int,
     feature_extractor: MultiFeatureExtractor,
     input_embedding_config: dict
-) -> int:
+) -> None:
     """
     Validate d_model consistency across configs.
 
@@ -108,11 +108,6 @@ def validate_d_model(
         Feature extractor used to compute trajectory features count
     input_embedding_config: dict
         Swipe point embedder configuration containing key_emb_size
-
-    Returns:
-    --------
-    d_model: int
-        The validated d_model value
 
     Raises:
     -------
