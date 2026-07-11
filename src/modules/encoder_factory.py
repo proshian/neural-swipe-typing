@@ -90,7 +90,6 @@ def _create_conformer_encoder(
         - num_layers: Number of Conformer layers (default: 4)
         - depthwise_conv_kernel_size: Kernel size for depthwise convolution (default: 31)
         - dropout: Dropout probability (default: 0.0)
-        - use_group_norm: Use GroupNorm instead of BatchNorm (default: False)
         - convolution_first: Apply convolution before attention (default: False)
     device: str | torch.device | None
         Device to create the encoder on
@@ -105,7 +104,6 @@ def _create_conformer_encoder(
     DEFAULT_NUM_LAYERS = 4
     DEFAULT_DEPTHWISE_CONV_KERNEL_SIZE = 31
     DEFAULT_DROPOUT = 0.0
-    DEFAULT_USE_GROUP_NORM = False
     DEFAULT_CONVOLUTION_FIRST = False
 
     num_heads = params.get("num_heads", DEFAULT_NUM_HEADS)
@@ -113,7 +111,6 @@ def _create_conformer_encoder(
     num_layers = params.get("num_layers", DEFAULT_NUM_LAYERS)
     depthwise_conv_kernel_size = params.get("depthwise_conv_kernel_size", DEFAULT_DEPTHWISE_CONV_KERNEL_SIZE)
     dropout = params.get("dropout", DEFAULT_DROPOUT)
-    use_group_norm = params.get("use_group_norm", DEFAULT_USE_GROUP_NORM)
     convolution_first = params.get("convolution_first", DEFAULT_CONVOLUTION_FIRST)
 
     conformer = Conformer(
@@ -123,7 +120,6 @@ def _create_conformer_encoder(
         num_layers=num_layers,
         depthwise_conv_kernel_size=depthwise_conv_kernel_size,
         dropout=dropout,
-        use_group_norm=use_group_norm,
         convolution_first=convolution_first,
     )
 
