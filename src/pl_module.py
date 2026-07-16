@@ -45,9 +45,11 @@ class LitNeuroswipeModel(LightningModule):
         self.val_token_acc = torchmetrics.classification.Accuracy(
             task="multiclass", num_classes=num_classes, ignore_index=word_pad_idx)
         self.train_token_f1 = torchmetrics.classification.F1Score(
-            task="multiclass", num_classes=num_classes, ignore_index=word_pad_idx)
+            task="multiclass", num_classes=num_classes, ignore_index=word_pad_idx,
+            average="macro")
         self.val_token_f1 = torchmetrics.classification.F1Score(
-            task="multiclass", num_classes=num_classes, ignore_index=word_pad_idx)
+            task="multiclass", num_classes=num_classes, ignore_index=word_pad_idx,
+            average="macro")
 
     def forward(self, encoder_in, y, encoder_in_pad_mask, y_pad_mask):
         return self.model.forward(encoder_in, y, encoder_in_pad_mask, y_pad_mask)
