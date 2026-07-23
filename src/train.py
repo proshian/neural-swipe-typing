@@ -238,6 +238,15 @@ class RunMetadataCallback(Callback):
         checkpoint["run_metadata"] = self.run_metadata
 
 
+class _UniqueCheckpoint(ModelCheckpoint):
+    """``ModelCheckpoint`` whose ``state_key`` won't collide with a sibling's.
+
+    Lightning rejects two same-type stateful callbacks sharing a ``state_key``,
+    and ``ModelCheckpoint`` derives it from monitoring/scheduling args only — so
+    two unmonitored checkpoints collide. The subclass qualname makes it unique.
+    """
+
+
 def get_callbacks(run_dir: str, experiment_name: str, early_stopping_config: dict,
                   run_metadata: dict) -> List[Callback]:
     # Sanitize experiment name for filename (replace / with --)
@@ -256,7 +265,7 @@ def get_callbacks(run_dir: str, experiment_name: str, early_stopping_config: dic
         filename=ckpt_filename)
 
     # Resume point, refreshed every validation.
-    model_checkpoint_last = ModelCheckpoint(
+    model_checkpoint_last = _UniqueCheckpoint(
         dirpath=checkpoint_dir, save_top_k=0, save_last=True)
 
     callbacks = [
