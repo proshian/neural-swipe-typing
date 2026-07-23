@@ -11,13 +11,13 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Plot metrics from TensorBoard lightning_logs by experiment."
+        description="Plot metrics from TensorBoard experiment logs by experiment."
     )
     parser.add_argument(
         "--tb_logdir_root",
         type=str,
         required=True,
-        help="Path to lightning_logs root containing $experiment_name/version_* subdirs.",
+        help="Path to experiments root containing $experiment_name/version_* subdirs.",
     )
     parser.add_argument(
         "--metrics",

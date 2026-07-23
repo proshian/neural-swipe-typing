@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         '--train_config', type=str, required=True,
-        help='Path to the training config JSON file (saved in lightning_logs/version_x/config.json)'
+        help='Path to the training config JSON file (saved in experiments/{experiment_name}/version_x/config.json)'
     )
     parser.add_argument(
         '--output_path', type=str, default=None,

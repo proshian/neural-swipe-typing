@@ -52,6 +52,7 @@ early_stopping:
 
 val_check_interval: 3000
 path_to_continue_checkpoint: null
+allow_divergent_resume: false
 max_epochs: null
 
 device: cuda
@@ -60,5 +61,4 @@ float32_matmul_precision: medium
 
 seed: 42
 
-log_dir: ./lightning_logs
-checkpoint_dir: ./checkpoints
+log_dir: ./experiments

@@ -184,6 +184,54 @@ uv run src/train.py --config-name experiment/traj_and_nearest_conformer encoder.
 You can also use as [train_for_kaggle.ipynb](src/train_for_kaggle.ipynb) jupyter notebook (for example if you want to do the training in kaggle).
 
 
+### Run directories
+
+Every launch gets its own self-contained directory:
+
+```
+experiments/{experiment_name}/version_N/
+  events.out.tfevents...      # TensorBoard logs
+  config.yaml, config.json    # the config this run was launched with
+  run_metadata.json           # git commit + dirty state, data file hashes, environment
+  dirty.patch                 # uncommitted changes, when the tree was dirty
+  checkpoints/
+    last.ckpt                 # newest state; use this to resume
+    top_10/, epoch_end/
+```
+
+Each checkpoint also embeds this metadata, so a `.ckpt` separated from its run
+directory still tells what produced it (minus the two bulky `git` fields):
+
+```python
+torch.load(ckpt, map_location="cpu", weights_only=False)["run_metadata"]
+```
+
+### Reproducing a run
+
+1. `git checkout <run_metadata.json → git.commit>`
+2. If present: `git apply dirty.patch` (files under `git.skipped_untracked_files`
+   were too large to capture — restore them by hand).
+3. `uv sync`
+4. `uv run src/train.py --config-path <absolute run dir> --config-name config`
+
+### Resuming an interrupted run
+
+Point at the run's `last.ckpt` (refreshed every validation):
+
+```sh
+uv run src/train.py \
+  path_to_continue_checkpoint=experiments/{experiment_name}/version_2/checkpoints/last.ckpt
+```
+
+This continues *into* `version_2` (same curves, same checkpoints) rather than
+starting a new run; re-running the original command always makes a fresh
+`version_N`, so a resume is never accidental.
+
+A resume is refused if the code or config changed since the run started. Pass
+`allow_divergent_resume=true` to override — the divergence is then recorded under
+`resumes` in `run_metadata.json`, with the changed config saved alongside.
+
+
 ## Prediction
 
 [word_generation_demo.ipynb](src/word_generation_demo.ipynb) serves as an example on how to predict via a trained model.
@@ -196,7 +244,7 @@ When predicting with a trained model, inherit the architecture from the saved tr
 
 ```sh
 uv run src/predict.py --config-name predict_from_train \
-  train_config_path="./lightning_logs/experiment_name/version_1/config.yaml" \
+  train_config_path="./experiments/experiment_name/version_1/config.yaml" \
   model_weights_path="./model_states/model.pt" \
 ```
 
@@ -246,8 +294,8 @@ Example:
 ```sh 
 uv run src/predict_all_epochs.py \
   --config-name predict_from_train \
-  train_config_path="./lightning_logs/experiment_name/version_1/config.yaml" \
-  model_weights_path="./checkpoints/experiment_name/epoch_end/model.ckpt"
+  train_config_path="./experiments/experiment_name/version_1/config.yaml" \
+  model_weights_path="./experiments/experiment_name/version_1/checkpoints/epoch_end/model.ckpt"
 ```
 
 
@@ -294,7 +342,7 @@ uv run -m src.plot_metrics --csv results/evaluation_results.csv --metrics accura
 
 Plot metrics from TensorBoard logs obtained during training (train.py):
 ```sh
-uv run -m src.plot_tb_metrics --tb_logdir_root lightning_logs --output_dir results/plots/tb --colors_config configs/experiment_colors.json
+uv run -m src.plot_tb_metrics --tb_logdir_root experiments --output_dir results/plots/tb --colors_config configs/experiment_colors.json
 ```
 
 ### Extracting model weights from a lightning checkpoint

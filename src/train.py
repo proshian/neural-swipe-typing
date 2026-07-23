@@ -1,6 +1,8 @@
 import sys; import os; sys.path.insert(1, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
+from collections.abc import Collection
+from copy import deepcopy
 import json
 import os
 from pathlib import Path
@@ -24,10 +26,23 @@ from feature_extraction.swipe_feature_extractors import MultiFeatureExtractor, T
 from pl_module import LitNeuroswipeModel
 from train_utils import CrossEntropyLossWithReshape
 from model import get_model_from_configs
-from utils.get_git_commit_hash import get_git_commit_hash
+from utils.run_capture import (
+    METADATA_FILENAME,
+    append_resume_record,
+    collect_run_state,
+    save_initial_run_state,
+)
 
 
 logger = logging.getLogger(__name__)
+
+# Those keys are verbose. We omit them. It's supposed that other keys
+# Let us identify the run, and find the original run dir of a checkpoint
+# and we can find those keys in the original run dir.
+DEFAULT_CHECKPOINT_METADATA_IGNORED_KEY_PATHS = frozenset({
+    ("git", "status_porcelain"),
+    ("git", "skipped_untracked_files"),
+})
 
 
 def get_config_derived_name(cfg: DictConfig) -> str:
@@ -72,6 +87,12 @@ def read_json(path: str):
     with open(path, "r", encoding="utf-8") as f:
         obj = json.load(f)
     return obj
+
+
+def resolve_path(path: str, original_cwd: str) -> str:
+    if Path(path).is_absolute():
+        return path
+    return str(Path(original_cwd) / path)
 
 
 def get_n_traj_feats(feature_extractor: MultiFeatureExtractor) -> int:
@@ -191,23 +212,58 @@ def create_optimizer_ctor(optimizer_type: str, optimizer_kwargs: dict, no_decay_
     return get_optimizer
 
 
-def get_callbacks(experiment_name: str, early_stopping_config: dict) -> List[Callback]:
+class RunMetadataCallback(Callback):
+    """Embed the launch metadata in every checkpoint, so one separated from its
+    run directory still records what produced it. Read back with:
+
+        torch.load(ckpt, map_location="cpu", weights_only=False)["run_metadata"]
+
+    ignored_key_paths lists nested keys to drop from the copy, defaulting to the
+    bulky Git status and skipped-untracked-file listings.
+    """
+
+    def __init__(self, metadata: dict,
+                 ignored_key_paths: Collection[tuple[str, ...]] | None = None) -> None:
+        if ignored_key_paths is None:
+            ignored_key_paths = DEFAULT_CHECKPOINT_METADATA_IGNORED_KEY_PATHS
+
+        self.run_metadata = deepcopy(metadata)
+        for path in ignored_key_paths:
+            parent = self.run_metadata
+            for key in path[:-1]:
+                parent = parent[key]
+            parent.pop(path[-1])
+
+    def on_save_checkpoint(self, trainer, pl_module, checkpoint) -> None:
+        checkpoint["run_metadata"] = self.run_metadata
+
+
+def get_callbacks(run_dir: str, experiment_name: str, early_stopping_config: dict,
+                  run_metadata: dict) -> List[Callback]:
     # Sanitize experiment name for filename (replace / with --)
     ckpt_name = experiment_name.replace('/', '--')
     ckpt_filename = f'{ckpt_name}-{{epoch}}-{{val_loss:.4f}}-{{val_word_level_accuracy:.4f}}'
 
+    checkpoint_dir = os.path.join(run_dir, 'checkpoints')
+
     model_checkpoint_top = ModelCheckpoint(
         monitor='val_loss', mode='min', save_top_k=10,
-        dirpath=f'checkpoints/{experiment_name}/top_10', filename=ckpt_filename)
+        dirpath=os.path.join(checkpoint_dir, 'top_10'), filename=ckpt_filename)
 
     model_checkpoint_on_epoch_end = ModelCheckpoint(
-        save_on_train_epoch_end=True, dirpath=f'checkpoints/{experiment_name}/epoch_end/',
+        save_on_train_epoch_end=True, dirpath=os.path.join(checkpoint_dir, 'epoch_end'),
         save_top_k=-1,
         filename=ckpt_filename)
+
+    # Resume point, refreshed every validation.
+    model_checkpoint_last = ModelCheckpoint(
+        dirpath=checkpoint_dir, save_top_k=0, save_last=True)
 
     callbacks = [
         model_checkpoint_top,
         model_checkpoint_on_epoch_end,
+        model_checkpoint_last,
+        RunMetadataCallback(run_metadata),
     ]
 
     if early_stopping_config["enabled"]:
@@ -219,14 +275,46 @@ def get_callbacks(experiment_name: str, early_stopping_config: dict) -> List[Cal
     return callbacks
 
 
+def find_run_dir(checkpoint_path: Path) -> Path | None:
+    """Returns run directory a checkpoint belongs to, or None if it is outside the layout.
+
+    Searches the ancestors for the one holding checkpoints/, since the depth
+    varies: checkpoints/last.ckpt but checkpoints/top_10/<name>.ckpt.
+    """
+    for parent in checkpoint_path.parents:
+        if parent.name == 'checkpoints':
+            return parent.parent
+    return None
+
+
+def get_resume_run_dir(path_to_continue_checkpoint: str | None,
+                       original_cwd: str) -> Path | None:
+    """Run directory to resume into, or None for a fresh launch."""
+    if path_to_continue_checkpoint is None:
+        return None
+    run_dir = find_run_dir(Path(resolve_path(path_to_continue_checkpoint, original_cwd)))
+    if run_dir is None:
+        raise ValueError(
+            f"Cannot resume: {path_to_continue_checkpoint} is not inside a "
+            f"run directory (.../version_N/checkpoints/...).")
+    logger.info("Resuming run %s", run_dir)
+    return run_dir
+
+
+def get_experiment_name(cfg: DictConfig, resume_run_dir: Path | None) -> str:
+    if resume_run_dir is not None:
+        with open(resume_run_dir / "config.json", encoding="utf-8") as f:
+            return json.load(f)["experiment_name"]
+    name = (cfg.experiment_name if cfg.experiment_name is not None
+            else get_config_derived_name(cfg))
+    if cfg.experiment_name_suffix:
+        name = f"{name}__{cfg.experiment_name_suffix}"
+    return name
+
+
 @hydra.main(version_base=None, config_path="../configs", config_name="train")
 def main(cfg: DictConfig) -> None:
     original_cwd = hydra.utils.get_original_cwd()
-
-    def resolve_path(path: str) -> str:
-        if Path(path).is_absolute():
-            return path
-        return str(Path(original_cwd) / path)
 
     logging_level = cfg.get("logging_level", "INFO")
     _setup_logging(logging_level)
@@ -240,27 +328,25 @@ def main(cfg: DictConfig) -> None:
     swipe_point_embedder_config = OmegaConf.to_container(cfg.swipe_point_embedder, resolve=True)
     feature_extractor_config = OmegaConf.to_container(cfg.feature_extractor, resolve=True)
 
-    grids = read_json(resolve_path(cfg.grids_path))
+    grids = read_json(resolve_path(cfg.grids_path, original_cwd))
     grid = grids[cfg.grid_name]
-    trajectory_features_statistics = read_json(resolve_path(cfg.trajectory_features_statistics_path))
-    bounding_boxes = read_json(resolve_path(cfg.bounding_boxes_path))
+    trajectory_features_statistics = read_json(resolve_path(cfg.trajectory_features_statistics_path, original_cwd))
+    bounding_boxes = read_json(resolve_path(cfg.bounding_boxes_path, original_cwd))
 
-    keyboard_tokenizer = KeyboardTokenizer(resolve_path(cfg.keyboard_tokenizer_path))
-    word_tokenizer = CharLevelTokenizerv2(resolve_path(cfg.vocab_path))
+    keyboard_tokenizer = KeyboardTokenizer(resolve_path(cfg.keyboard_tokenizer_path, original_cwd))
+    word_tokenizer = CharLevelTokenizerv2(resolve_path(cfg.vocab_path, original_cwd))
     word_pad_idx = word_tokenizer.char_to_idx['<pad>']
 
-    config_name = get_config_derived_name(cfg)
-    default_experiment_name = config_name
-    experiment_name = cfg.experiment_name if cfg.experiment_name is not None else default_experiment_name
+    path_to_continue_checkpoint = cfg.get("path_to_continue_checkpoint", None)
 
-    if cfg.experiment_name_suffix:
-        experiment_name = f"{experiment_name}__{cfg.experiment_name_suffix}"
+
+    resume_run_dir = get_resume_run_dir(path_to_continue_checkpoint, original_cwd)
+
+    experiment_name = get_experiment_name(cfg, resume_run_dir)
 
     # Assertions
     assert 1 <= cfg.num_classes <= len(word_tokenizer.char_to_idx), \
         "num_classes should be between 1 and the number of tokens in the vocabulary"
-
-    path_to_continue_checkpoint = cfg.get("path_to_continue_checkpoint", None)
 
     seed_everything(cfg.seed)
 
@@ -273,7 +359,7 @@ def main(cfg: DictConfig) -> None:
     persistent_workers = cfg.dataloader_num_workers > 0
 
     train_dataset_full = SwipeDataset(
-        data_path=resolve_path(cfg.dataset_paths.train),
+        data_path=resolve_path(cfg.dataset_paths.train, original_cwd),
         word_tokenizer=word_tokenizer,
         grid_name_to_swipe_feature_extractor=grid_name_to_swipe_feature_extractor,
         total=cfg.get("train_total", None)
@@ -281,7 +367,7 @@ def main(cfg: DictConfig) -> None:
     train_dataset = SwipeDatasetSubset(train_dataset_full, grid_name=cfg.grid_name)
 
     val_dataset_full = SwipeDataset(
-        data_path=resolve_path(cfg.dataset_paths.val),
+        data_path=resolve_path(cfg.dataset_paths.val, original_cwd),
         word_tokenizer=word_tokenizer,
         grid_name_to_swipe_feature_extractor=grid_name_to_swipe_feature_extractor,
         total=cfg.get("val_total", None)
@@ -306,32 +392,69 @@ def main(cfg: DictConfig) -> None:
         persistent_workers=persistent_workers,
         collate_fn=collate_fn)
 
-    log_dir = resolve_path(cfg.get("log_dir", "lightning_logs"))
-    tb_logger = pl_loggers.TensorBoardLogger(save_dir=log_dir, name=experiment_name)
+    log_dir = resolve_path(cfg.get("log_dir", "experiments"), original_cwd)
+    if resume_run_dir is not None:
+        # Passing the existing version reopens that run directory; without it
+        # the logger would allocate a new one and split the run in two.
+        tb_logger = pl_loggers.TensorBoardLogger(
+            save_dir=str(resume_run_dir.parent.parent),
+            name=resume_run_dir.parent.name,
+            version=resume_run_dir.name)
+    else:
+        # Omitting version makes the logger allocate the next free version_N
+        # under log_dir/experiment_name.
+        tb_logger = pl_loggers.TensorBoardLogger(save_dir=log_dir, name=experiment_name)
 
     # Save configs and metadata for reproducibility
     os.makedirs(tb_logger.log_dir, exist_ok=True)
+    run_dir = Path(tb_logger.log_dir)
 
     # Keep experiment_name in training config so prediction configs that 
     # inherit from it will also include the experiment_name.
     # (required and propagated to evaluation as metdata within predictions).
     cfg.experiment_name = experiment_name
 
-    # Save as YAML (Hydra native)
-    config_yaml_path = os.path.join(tb_logger.log_dir, "config.yaml")
-    OmegaConf.save(cfg, config_yaml_path)
+    resolved_cfg = OmegaConf.to_container(cfg, resolve=True)
+    run_state = collect_run_state(resolved_cfg, Path(original_cwd))
 
-    # Save as JSON for compatibility with analysis scripts
-    config_json_path = os.path.join(tb_logger.log_dir, "config.json")
-    with open(config_json_path, "w", encoding="utf-8") as f:
-        json.dump(OmegaConf.to_container(cfg, resolve=True), f, indent=4, ensure_ascii=False)
+    if resume_run_dir is not None:
+        # A resume is only a continuation if it runs the same code on the same
+        # config. Changes that alter the architecture fail loudly when the
+        # weights are loaded, but many (loss, schedule, preprocessing) would
+        # load fine and silently leave one run with two incomparable halves.
 
-    # Save git commit hash
-    commit_hash = get_git_commit_hash() or "git commit hash unavailable"
-    with open(os.path.join(tb_logger.log_dir, "git_commit_hash.txt"), "w", encoding="utf-8") as f:
-        f.write(commit_hash + "\n")
+        with open(run_dir / METADATA_FILENAME, encoding="utf-8") as f:
+            previous_metadata = json.load(f)
+        baseline = previous_metadata["fingerprint"]
+        current = run_state["metadata"]["fingerprint"]
+        divergent_parts = sorted(
+            part for part, value in current.items() if baseline[part] != value)
+        if divergent_parts and not cfg.get("allow_divergent_resume", False):
+            raise RuntimeError(
+                f"Cannot resume {run_dir}: {', '.join(divergent_parts)} changed since the "
+                f"run started, so continuing would mix different training setups into one "
+                f"run. Restore the original state (see run_metadata.json, git commit "
+                f"{previous_metadata.get('git', {}).get('commit')}), or pass "
+                f"allow_divergent_resume=true to continue anyway and have the difference "
+                f"recorded.")
+        resume_index = append_resume_record(run_dir, run_state, divergent_parts)
+        if "config" in divergent_parts:
+            # Kept beside the original rather than replacing it, so the run
+            # directory records every config it was actually trained with.
+            OmegaConf.save(cfg, run_dir / f"config.resume-{resume_index}.yaml")
+    else:
+        # Save as YAML (Hydra native)
+        OmegaConf.save(cfg, run_dir / "config.yaml")
 
-    callbacks = get_callbacks(experiment_name, cfg.early_stopping)
+        # Save as JSON for compatibility with analysis scripts
+        with open(run_dir / "config.json", "w", encoding="utf-8") as f:
+            json.dump(resolved_cfg, f, indent=4, ensure_ascii=False)
+
+        save_initial_run_state(run_dir, run_state)
+
+    callbacks = get_callbacks(
+        str(run_dir), experiment_name, cfg.early_stopping,
+        run_state["metadata"])
 
     criterion = CrossEntropyLossWithReshape(
         ignore_index=word_pad_idx,
