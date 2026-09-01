@@ -1,0 +1,6 @@
+type: transformer_v1
+params:
+  num_layers: 4
+  num_heads: 4
+  dim_feedforward: 128
+  dropout: 0.1

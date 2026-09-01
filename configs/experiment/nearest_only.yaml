@@ -1,0 +1,9 @@
+# @package _global_
+
+defaults:
+  - /train
+  - override /encoder: transformer_v1
+  - override /decoder: transformer_v1
+  - override /swipe_point_embedder: nearest
+  - override /feature_extractor: nearest_key
+  - _self_

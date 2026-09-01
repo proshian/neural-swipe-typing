@@ -1,6 +1,5 @@
 import torch
 import torch.nn.functional as F
-from lightning.pytorch.callbacks import Callback
 
 class CrossEntropyLossWithReshape(torch.nn.Module):
     def __init__(self, ignore_index=-100, label_smoothing=0.0):
@@ -20,10 +19,4 @@ class CrossEntropyLossWithReshape(torch.nn.Module):
                             target_flat,
                             ignore_index=self.ignore_index,
                             label_smoothing=self.label_smoothing)
-
-
-
-class EmptyCudaCacheCallback(Callback):
-    def on_train_epoch_end(self, trainer, pl_module):
-        torch.cuda.empty_cache()
 

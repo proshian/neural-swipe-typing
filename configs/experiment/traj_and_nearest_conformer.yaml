@@ -1,0 +1,9 @@
+# @package _global_
+
+defaults:
+  - /train
+  - override /encoder: conformer
+  - override /decoder: transformer_v1
+  - override /swipe_point_embedder: separate_traj_and_nearest__6_coord
+  - override /feature_extractor: traj_and_nearest
+  - _self_

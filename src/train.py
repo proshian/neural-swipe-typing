@@ -1,9 +1,11 @@
-import sys; import os; sys.path.insert(1, os.path.join(os.getcwd(), "src"))
+import sys; import os; sys.path.insert(1, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
+from collections.abc import Collection
+from copy import deepcopy
 import json
 import os
-import argparse
+from pathlib import Path
 from typing import List
 import logging
 
@@ -13,6 +15,9 @@ from lightning.pytorch.callbacks import Callback, EarlyStopping, ModelCheckpoint
 from lightning.pytorch import seed_everything
 from torch.utils.data import DataLoader
 from lightning.pytorch import loggers as pl_loggers
+import hydra
+from hydra.core.hydra_config import HydraConfig
+from omegaconf import DictConfig, OmegaConf
 
 from dataset import CollateFn, SwipeDataset, SwipeDatasetSubset
 from ns_tokenizers import CharLevelTokenizerv2, KeyboardTokenizer
@@ -20,63 +25,74 @@ from feature_extraction.swipe_feature_extractor_factory import swipe_feature_ext
 from feature_extraction.swipe_feature_extractors import MultiFeatureExtractor, TrajectoryFeatureExtractor
 from pl_module import LitNeuroswipeModel
 from train_utils import CrossEntropyLossWithReshape
-from train_utils import EmptyCudaCacheCallback
 from model import get_model_from_configs
-from utils.get_git_commit_hash import get_git_commit_hash
+from utils.run_capture import (
+    METADATA_FILENAME,
+    append_resume_record,
+    collect_run_state,
+    save_initial_run_state,
+)
 
 
 logger = logging.getLogger(__name__)
 
+# Those keys are verbose. We omit them. It's supposed that other keys
+# Let us identify the run, and find the original run dir of a checkpoint
+# and we can find those keys in the original run dir.
+DEFAULT_CHECKPOINT_METADATA_IGNORED_KEY_PATHS = frozenset({
+    ("git", "status_porcelain"),
+    ("git", "skipped_untracked_files"),
+})
 
-LOG_DIR = "lightning_logs/"
 
-
-def get_config_derived_name(train_config: dict) -> str:
+def get_config_derived_name(cfg: DictConfig) -> str:
     """
-    Generate a descriptive name from configuration file basenames.
+    Generate experiment name from resolved config's type fields and CLI overrides.
 
-    Creates a name like: "traj_and_nearest__traj_and_nearest__6_coord__transformer_v1__transformer_v1"
-    from the component config paths.
+    Uses the 'type' field from each component config to build a descriptive name,
+    then appends any CLI overrides for full reproducibility visibility.
+
+    Example output:
+    trajectory+nearest_key__traj_and_nearest__conformer__transformer_v1__encoder.params.dropout=0.2
     """
-    feature_extractor_name = os.path.basename(train_config["swipe_feature_extractor_factory_config_path"]).replace(".json", "")
-    swipe_point_embedder_name = os.path.basename(train_config["swipe_point_embedder_config_path"]).replace(".json", "")
-    encoder_name = os.path.basename(train_config["encoder_config_path"]).replace(".json", "")
-    decoder_name = os.path.basename(train_config["decoder_config_path"]).replace(".json", "")
+    encoder_name = cfg.encoder.type
+    decoder_name = cfg.decoder.type
+    spe_name = cfg.swipe_point_embedder.type.replace("separate_", "")
 
-    # Shorten SPE name by removing redundant "separate_" prefix
-    spe_short = swipe_point_embedder_name.replace("separate_", "")
+    feature_extractor_types = [fe.type for fe in cfg.feature_extractor]
+    fe_name = "+".join(feature_extractor_types)
 
-    return f"{feature_extractor_name}__{spe_short}__{encoder_name}__{decoder_name}"
+    base_name = f"{fe_name}__{spe_name}__{encoder_name}__{decoder_name}"
+
+    # Get CLI overrides from Hydra and append them to the name
+    overrides = HydraConfig.get().overrides.task
+    if overrides:
+        OVERRIDES_TO_EXCLUDE_FROM_NAME = tuple(["experiment_name_suffix"])
+        filtered_overrides = [o for o in overrides if not o.startswith(OVERRIDES_TO_EXCLUDE_FROM_NAME)]
+        if filtered_overrides:
+            # Sort for consistent ordering
+            overrides_str = "__".join(sorted(filtered_overrides))
+            return f"{base_name}__{overrides_str}"
+
+    return base_name
 
 
-
-def _setup_logging(train_config: dict) -> None:
-    """Configure logging, even if called after logger creation."""
-    # Remove all handlers from root logger
+def _setup_logging(logging_level: str = "INFO") -> None:
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
-    
-    logging_level_str = train_config.get("logging_level", "INFO")
-    logging.basicConfig(level=getattr(logging, logging_level_str))
-    
+    logging.basicConfig(level=getattr(logging, logging_level))
 
 
 def read_json(path: str):
     with open(path, "r", encoding="utf-8") as f:
-        obj = json.load(f)  
+        obj = json.load(f)
     return obj
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train a model")
-    parser.add_argument(
-        "--train_config",
-        type=str,
-        required=True,
-        help="Path to the training configuration file",
-    )
-    args = parser.parse_args()
-    return args
+def resolve_path(path: str, original_cwd: str) -> str:
+    if Path(path).is_absolute():
+        return path
+    return str(Path(original_cwd) / path)
 
 
 def get_n_traj_feats(feature_extractor: MultiFeatureExtractor) -> int:
@@ -101,7 +117,7 @@ def validate_d_model(
     d_model_config: int,
     feature_extractor: MultiFeatureExtractor,
     input_embedding_config: dict
-) -> int:
+) -> None:
     """
     Validate d_model consistency across configs.
 
@@ -113,11 +129,6 @@ def validate_d_model(
         Feature extractor used to compute trajectory features count
     input_embedding_config: dict
         Swipe point embedder configuration containing key_emb_size
-
-    Returns:
-    --------
-    d_model: int
-        The validated d_model value
 
     Raises:
     -------
@@ -146,26 +157,11 @@ def create_lr_scheduler_ctor(scheduler_type: str, scheduler_params: dict):
         else:
             raise ValueError(f"Unknown lr_scheduler type: {scheduler_type}")
     return get_lr_scheduler
-    
 
-def create_optimizer_ctor(optimizer_type: str, optimizer_kwargs: dict, no_decay_keys: List[str] = None):
+
+def create_optimizer_ctor(optimizer_type: str, optimizer_kwargs: dict, no_decay_keys: List[str] | None = None):
     """
     Create optimizer constructor with configurable weight decay exclusion.
-    
-    Arguments:
-    ----------
-    optimizer_type: str
-        Type of optimizer ('Adam', 'AdamW', 'SGD')
-    optimizer_kwargs: dict
-        Optimizer keyword arguments
-    no_decay_keys: list | None
-        List of parameter name substrings to exclude from weight decay.
-        Must be explicitly set when weight_decay > 0.
-        Use [] to apply weight decay to all parameters.
-        Note that a standard practice is to do ['bias', 'LayerNorm.weight', 'norm.weight']
-        Examples: 
-        * (Recommended) ['bias', 'LayerNorm.weight', 'norm.weight'] 
-        * []
     """
     weight_decay = optimizer_kwargs.get("weight_decay", 0.0)
 
@@ -175,20 +171,20 @@ def create_optimizer_ctor(optimizer_type: str, optimizer_kwargs: dict, no_decay_
             "Use [] to apply weight decay to all parameters, or specify parameter name substrings "
             "to exclude (examples: `['bias', 'LayerNorm.weight', 'norm.weight']`, `[]`)."
         )
-        
+
     if no_decay_keys is None:
         no_decay_keys = []
 
     def get_optimizer(model_named_parameters):
         decay_params = []
         no_decay_params = []
-        
+
         for name, param in model_named_parameters:
             if any(nd_key in name for nd_key in no_decay_keys):
                 no_decay_params.append(param)
             else:
                 decay_params.append(param)
-        
+
         optimizer_grouped_parameters = [
             {"params": decay_params, "weight_decay": weight_decay},
             {"params": no_decay_params, "weight_decay": 0.0},
@@ -209,217 +205,328 @@ def create_optimizer_ctor(optimizer_type: str, optimizer_kwargs: dict, no_decay_
                 f"Unknown optimizer type: {optimizer_type}. "
                 f"Supported types: {list(optimizer_classes.keys())}"
             )
-        
+
         optimizer_class = optimizer_classes[optimizer_type]
         return optimizer_class(optimizer_grouped_parameters, **optimizer_kwargs_without_weight_decay)
 
     return get_optimizer
 
 
+class RunMetadataCallback(Callback):
+    """Embed the launch metadata in every checkpoint, so one separated from its
+    run directory still records what produced it. Read back with:
 
-def get_callbacks(train_config) -> List[Callback]:
-    experiment_name = train_config["experiment_name"]
+        torch.load(ckpt, map_location="cpu", weights_only=False)["run_metadata"]
+
+    ignored_key_paths lists nested keys to drop from the copy, defaulting to the
+    bulky Git status and skipped-untracked-file listings.
+    """
+
+    def __init__(self, metadata: dict,
+                 ignored_key_paths: Collection[tuple[str, ...]] | None = None) -> None:
+        if ignored_key_paths is None:
+            ignored_key_paths = DEFAULT_CHECKPOINT_METADATA_IGNORED_KEY_PATHS
+
+        self.run_metadata = deepcopy(metadata)
+        for path in ignored_key_paths:
+            parent = self.run_metadata
+            for key in path[:-1]:
+                parent = parent[key]
+            parent.pop(path[-1])
+
+    def on_save_checkpoint(self, trainer, pl_module, checkpoint) -> None:
+        checkpoint["run_metadata"] = self.run_metadata
+
+
+class _UniqueCheckpoint(ModelCheckpoint):
+    """``ModelCheckpoint`` whose ``state_key`` won't collide with a sibling's.
+
+    Lightning rejects two same-type stateful callbacks sharing a ``state_key``,
+    and ``ModelCheckpoint`` derives it from monitoring/scheduling args only — so
+    two unmonitored checkpoints collide. The subclass qualname makes it unique.
+    """
+
+
+def get_callbacks(run_dir: str, experiment_name: str, early_stopping_config: dict,
+                  run_metadata: dict) -> List[Callback]:
     # Sanitize experiment name for filename (replace / with --)
     ckpt_name = experiment_name.replace('/', '--')
     ckpt_filename = f'{ckpt_name}-{{epoch}}-{{val_loss:.4f}}-{{val_word_level_accuracy:.4f}}'
 
+    checkpoint_dir = os.path.join(run_dir, 'checkpoints')
+
     model_checkpoint_top = ModelCheckpoint(
-        monitor='val_loss', mode = 'min', save_top_k=10,
-        dirpath=f'checkpoints/{experiment_name}/top_10', filename=ckpt_filename)
+        monitor='val_loss', mode='min', save_top_k=10,
+        dirpath=os.path.join(checkpoint_dir, 'top_10'), filename=ckpt_filename)
 
     model_checkpoint_on_epoch_end = ModelCheckpoint(
-        save_on_train_epoch_end = True, dirpath=f'checkpoints/{experiment_name}/epoch_end/',
+        save_on_train_epoch_end=True, dirpath=os.path.join(checkpoint_dir, 'epoch_end'),
         save_top_k=-1,
         filename=ckpt_filename)
-    
-    # When num workers > 0, there's a RAM drain issue:
-    # See: https://github.com/pytorch/pytorch/issues/13246.
-    # emptying cuda cache is a workaround.
-    # However, it doesn't seem to work with pytorch lightning,
-    # (the callback doesn't solve an issue, but is kept as a reminder)
-    callbacks = [
-        model_checkpoint_top, 
-        model_checkpoint_on_epoch_end,
-        EmptyCudaCacheCallback()
-    ]
-    
-    if train_config["early_stopping"]["enabled"]:
-        early_stopping_cb = EarlyStopping(
-            monitor='val_loss', mode = 'min', 
-            patience=train_config["early_stopping"]["patience"])
-        callbacks.append(early_stopping_cb)
-    
-    return callbacks
-    
-    
 
-def main(train_config: dict) -> None:
-    # Read components from config
-    grid_name = train_config["grid_name"]
-    trajectory_features_statistics = read_json(train_config["trajectory_features_statistics_path"])        
-    bounding_boxes = read_json(train_config["bounding_boxes_path"])
-    grids = read_json(train_config["grids_path"])
-    grid = grids[grid_name]
-    swipe_feature_extractor_component_configs = read_json(train_config["swipe_feature_extractor_factory_config_path"])
-    keyboard_tokenizer = KeyboardTokenizer(train_config["keyboard_tokenizer_path"])
-    persistent_workers = True if train_config["dataloader_num_workers"] > 0 else False
-    word_tokenizer = CharLevelTokenizerv2(train_config["vocab_path"])
-    config_name = get_config_derived_name(train_config)
-    default_experiment_name = f"{config_name}__bs_{train_config['train_batch_size']}/seed_{train_config['seed']}"
-    experiment_name = train_config.setdefault("experiment_name", default_experiment_name)
+    # Resume point, refreshed every validation.
+    model_checkpoint_last = _UniqueCheckpoint(
+        dirpath=checkpoint_dir, save_top_k=0, save_last=True)
+
+    callbacks = [
+        model_checkpoint_top,
+        model_checkpoint_on_epoch_end,
+        model_checkpoint_last,
+        RunMetadataCallback(run_metadata),
+    ]
+
+    if early_stopping_config["enabled"]:
+        early_stopping_cb = EarlyStopping(
+            monitor='val_loss', mode='min',
+            patience=early_stopping_config["patience"])
+        callbacks.append(early_stopping_cb)
+
+    return callbacks
+
+
+def find_run_dir(checkpoint_path: Path) -> Path | None:
+    """Returns run directory a checkpoint belongs to, or None if it is outside the layout.
+
+    Searches the ancestors for the one holding checkpoints/, since the depth
+    varies: checkpoints/last.ckpt but checkpoints/top_10/<name>.ckpt.
+    """
+    for parent in checkpoint_path.parents:
+        if parent.name == 'checkpoints':
+            return parent.parent
+    return None
+
+
+def get_resume_run_dir(path_to_continue_checkpoint: str | None,
+                       original_cwd: str) -> Path | None:
+    """Run directory to resume into, or None for a fresh launch."""
+    if path_to_continue_checkpoint is None:
+        return None
+    run_dir = find_run_dir(Path(resolve_path(path_to_continue_checkpoint, original_cwd)))
+    if run_dir is None:
+        raise ValueError(
+            f"Cannot resume: {path_to_continue_checkpoint} is not inside a "
+            f"run directory (.../version_N/checkpoints/...).")
+    logger.info("Resuming run %s", run_dir)
+    return run_dir
+
+
+def get_experiment_name(cfg: DictConfig, resume_run_dir: Path | None) -> str:
+    if resume_run_dir is not None:
+        with open(resume_run_dir / "config.json", encoding="utf-8") as f:
+            return json.load(f)["experiment_name"]
+    name = (cfg.experiment_name if cfg.experiment_name is not None
+            else get_config_derived_name(cfg))
+    if cfg.experiment_name_suffix:
+        name = f"{name}__{cfg.experiment_name_suffix}"
+    return name
+
+
+@hydra.main(version_base=None, config_path="../configs", config_name="train")
+def main(cfg: DictConfig) -> None:
+    original_cwd = hydra.utils.get_original_cwd()
+
+    logging_level = cfg.get("logging_level", "INFO")
+    _setup_logging(logging_level)
+
+    # Print the resolved config
+    logger.info(f"Resolved config (before programmatic modifications):\n{OmegaConf.to_yaml(cfg)}")
+
+    # Convert Hydra configs to dicts for factory functions
+    encoder_config = OmegaConf.to_container(cfg.encoder, resolve=True)
+    decoder_config = OmegaConf.to_container(cfg.decoder, resolve=True)
+    swipe_point_embedder_config = OmegaConf.to_container(cfg.swipe_point_embedder, resolve=True)
+    feature_extractor_config = OmegaConf.to_container(cfg.feature_extractor, resolve=True)
+
+    grids = read_json(resolve_path(cfg.grids_path, original_cwd))
+    grid = grids[cfg.grid_name]
+    trajectory_features_statistics = read_json(resolve_path(cfg.trajectory_features_statistics_path, original_cwd))
+    bounding_boxes = read_json(resolve_path(cfg.bounding_boxes_path, original_cwd))
+
+    keyboard_tokenizer = KeyboardTokenizer(resolve_path(cfg.keyboard_tokenizer_path, original_cwd))
+    word_tokenizer = CharLevelTokenizerv2(resolve_path(cfg.vocab_path, original_cwd))
     word_pad_idx = word_tokenizer.char_to_idx['<pad>']
 
+    path_to_continue_checkpoint = cfg.get("path_to_continue_checkpoint", None)
+
+
+    resume_run_dir = get_resume_run_dir(path_to_continue_checkpoint, original_cwd)
+
+    experiment_name = get_experiment_name(cfg, resume_run_dir)
+
     # Assertions
-    # num_classes is usually equal to num_tokens - 2 (subtracting <pad> and <unk>)
-    assert 1 <= train_config["num_classes"] <= len(word_tokenizer.char_to_idx), \
+    assert 1 <= cfg.num_classes <= len(word_tokenizer.char_to_idx), \
         "num_classes should be between 1 and the number of tokens in the vocabulary"
 
-
-    path_to_continue_checkpoint = None
-    if train_config.get("path_to_continue_checkpoint", None):
-        path_to_continue_checkpoint = train_config["path_to_continue_checkpoint"]
-
-
-    seed_everything(train_config["seed"])
-
+    seed_everything(cfg.seed)
 
     feature_extractor = swipe_feature_extractor_factory(
-        grid, keyboard_tokenizer, trajectory_features_statistics, 
-        bounding_boxes, grid_name, swipe_feature_extractor_component_configs)
+        grid, keyboard_tokenizer, trajectory_features_statistics,
+        bounding_boxes, cfg.grid_name, feature_extractor_config)
 
-    grid_name_to_swipe_feature_extractor = {
-        grid_name: feature_extractor
-    }
+    grid_name_to_swipe_feature_extractor = {cfg.grid_name: feature_extractor}
 
+    persistent_workers = cfg.dataloader_num_workers > 0
 
     train_dataset_full = SwipeDataset(
-        data_path=train_config["dataset_paths"]["train"],
+        data_path=resolve_path(cfg.dataset_paths.train, original_cwd),
         word_tokenizer=word_tokenizer,
         grid_name_to_swipe_feature_extractor=grid_name_to_swipe_feature_extractor,
-        total=train_config.get("train_total", None)
+        total=cfg.get("train_total", None)
     )
-    train_dataset = SwipeDatasetSubset(train_dataset_full, grid_name=grid_name)
+    train_dataset = SwipeDatasetSubset(train_dataset_full, grid_name=cfg.grid_name)
 
     val_dataset_full = SwipeDataset(
-        data_path=train_config["dataset_paths"]["val"],
+        data_path=resolve_path(cfg.dataset_paths.val, original_cwd),
         word_tokenizer=word_tokenizer,
         grid_name_to_swipe_feature_extractor=grid_name_to_swipe_feature_extractor,
-        total=train_config.get("val_total", None)
+        total=cfg.get("val_total", None)
     )
-    val_dataset = SwipeDatasetSubset(val_dataset_full, grid_name=grid_name)
+    val_dataset = SwipeDatasetSubset(val_dataset_full, grid_name=cfg.grid_name)
 
-
-    collate_fn = CollateFn(
-        word_pad_idx=word_pad_idx, batch_first=False)
+    collate_fn = CollateFn(word_pad_idx=word_pad_idx, batch_first=False)
 
     train_loader = DataLoader(
-        train_dataset, 
-        batch_size=train_config["train_batch_size"], 
+        train_dataset,
+        batch_size=cfg.train_batch_size,
         shuffle=True,
-        num_workers=train_config["dataloader_num_workers"],
-        persistent_workers = persistent_workers,
+        num_workers=cfg.dataloader_num_workers,
+        persistent_workers=persistent_workers,
         collate_fn=collate_fn)
 
     val_loader = DataLoader(
-        val_dataset, 
-        batch_size=train_config["val_batch_size"], 
+        val_dataset,
+        batch_size=cfg.val_batch_size,
         shuffle=False,
-        num_workers=train_config["dataloader_num_workers"], 
-        persistent_workers = persistent_workers,
+        num_workers=cfg.dataloader_num_workers,
+        persistent_workers=persistent_workers,
         collate_fn=collate_fn)
-    
 
+    log_dir = resolve_path(cfg.get("log_dir", "experiments"), original_cwd)
+    if resume_run_dir is not None:
+        # Passing the existing version reopens that run directory; without it
+        # the logger would allocate a new one and split the run in two.
+        tb_logger = pl_loggers.TensorBoardLogger(
+            save_dir=str(resume_run_dir.parent.parent),
+            name=resume_run_dir.parent.name,
+            version=resume_run_dir.name)
+    else:
+        # Omitting version makes the logger allocate the next free version_N
+        # under log_dir/experiment_name.
+        tb_logger = pl_loggers.TensorBoardLogger(save_dir=log_dir, name=experiment_name)
 
-    tb_logger = pl_loggers.TensorBoardLogger(save_dir=LOG_DIR, name=experiment_name)
-
-
-    ##### Save train config and git commit hash to the logger directory  
-    ##### for reproducibility.
+    # Save configs and metadata for reproducibility
     os.makedirs(tb_logger.log_dir, exist_ok=True)
-    with open(os.path.join(tb_logger.log_dir, "config.json"), "w", encoding="utf-8") as f:
-        json.dump(train_config, f, indent=4, ensure_ascii=False)
-    
-    commit_hash = get_git_commit_hash() or "git commit hash unavailable"
-    with open(os.path.join(tb_logger.log_dir, "git_commit_hash.txt"), "w", encoding="utf-8") as f:
-        f.write(commit_hash + "\n")
+    run_dir = Path(tb_logger.log_dir)
 
-    callbacks = get_callbacks(train_config)
+    # Keep experiment_name in training config so prediction configs that 
+    # inherit from it will also include the experiment_name.
+    # (required and propagated to evaluation as metdata within predictions).
+    cfg.experiment_name = experiment_name
 
+    resolved_cfg = OmegaConf.to_container(cfg, resolve=True)
+    run_state = collect_run_state(resolved_cfg, Path(original_cwd))
+
+    if resume_run_dir is not None:
+        # A resume is only a continuation if it runs the same code on the same
+        # config. Changes that alter the architecture fail loudly when the
+        # weights are loaded, but many (loss, schedule, preprocessing) would
+        # load fine and silently leave one run with two incomparable halves.
+
+        with open(run_dir / METADATA_FILENAME, encoding="utf-8") as f:
+            previous_metadata = json.load(f)
+        baseline = previous_metadata["fingerprint"]
+        current = run_state["metadata"]["fingerprint"]
+        divergent_parts = sorted(
+            part for part, value in current.items() if baseline[part] != value)
+        if divergent_parts and not cfg.get("allow_divergent_resume", False):
+            raise RuntimeError(
+                f"Cannot resume {run_dir}: {', '.join(divergent_parts)} changed since the "
+                f"run started, so continuing would mix different training setups into one "
+                f"run. Restore the original state (see run_metadata.json, git commit "
+                f"{previous_metadata.get('git', {}).get('commit')}), or pass "
+                f"allow_divergent_resume=true to continue anyway and have the difference "
+                f"recorded.")
+        resume_index = append_resume_record(run_dir, run_state, divergent_parts)
+        if "config" in divergent_parts:
+            # Kept beside the original rather than replacing it, so the run
+            # directory records every config it was actually trained with.
+            OmegaConf.save(cfg, run_dir / f"config.resume-{resume_index}.yaml")
+    else:
+        # Save as YAML (Hydra native)
+        OmegaConf.save(cfg, run_dir / "config.yaml")
+
+        # Save as JSON for compatibility with analysis scripts
+        with open(run_dir / "config.json", "w", encoding="utf-8") as f:
+            json.dump(resolved_cfg, f, indent=4, ensure_ascii=False)
+
+        save_initial_run_state(run_dir, run_state)
+
+    callbacks = get_callbacks(
+        str(run_dir), experiment_name, cfg.early_stopping,
+        run_state["metadata"])
 
     criterion = CrossEntropyLossWithReshape(
-        ignore_index=word_pad_idx, 
-        label_smoothing=train_config.get("label_smoothing", 0.0))
-    
+        ignore_index=word_pad_idx,
+        label_smoothing=cfg.get("label_smoothing", 0.0))
 
-    lr_scheduler_ctor=create_lr_scheduler_ctor(
-        train_config["lr_scheduler"]["type"],
-        train_config["lr_scheduler"]["params"]
+    lr_scheduler_ctor = create_lr_scheduler_ctor(
+        cfg.lr_scheduler.type,
+        OmegaConf.to_container(cfg.lr_scheduler.params, resolve=True)
     )
 
     optimizer_ctor = create_optimizer_ctor(
-        train_config["optimizer"]["type"],
-        train_config["optimizer"]["params"],
-        no_decay_keys=train_config["optimizer"].get("no_decay_keys", None)
+        cfg.optimizer.type,
+        OmegaConf.to_container(cfg.optimizer.params, resolve=True),
+        no_decay_keys=cfg.optimizer.get("no_decay_keys", None)
     )
 
-    # Load all component configs
-    input_embedding_config = read_json(train_config["swipe_point_embedder_config_path"])
-    encoder_config = read_json(train_config["encoder_config_path"])
-    decoder_config = read_json(train_config["decoder_config_path"])
-
-    # Validate and get d_model
-    d_model = train_config.get("d_model")
+    # Validate d_model
+    d_model = cfg.get("d_model")
     if d_model is None:
         raise ValueError(
             "d_model must be specified in train config. "
             "It should match the output dimension of the swipe point embedder."
         )
-    validate_d_model(d_model, feature_extractor, input_embedding_config)
+    validate_d_model(d_model, feature_extractor, swipe_point_embedder_config)
 
     model = get_model_from_configs(
-        input_embedding_config=input_embedding_config,
+        input_embedding_config=swipe_point_embedder_config,
         encoder_config=encoder_config,
         decoder_config=decoder_config,
-        n_classes=train_config["num_classes"],
+        n_classes=cfg.num_classes,
         n_word_tokens=len(word_tokenizer.char_to_idx),
-        max_out_seq_len=train_config["max_out_seq_len"],
+        max_out_seq_len=cfg.max_out_seq_len,
         d_model=d_model,
-        device=train_config["device"]
+        device=cfg.device
     )
 
     pl_model = LitNeuroswipeModel(
         model=model,
-        criterion = criterion, 
-        word_pad_idx = word_pad_idx,
-        num_classes = train_config["num_classes"],
-        train_batch_size = train_config["train_batch_size"],
-        optimizer_ctor=optimizer_ctor, 
-        lr_scheduler_ctor=lr_scheduler_ctor, 
+        criterion=criterion,
+        word_pad_idx=word_pad_idx,
+        num_classes=cfg.num_classes,
+        train_batch_size=cfg.train_batch_size,
+        optimizer_ctor=optimizer_ctor,
+        lr_scheduler_ctor=lr_scheduler_ctor,
     )
 
-    torch.set_float32_matmul_precision(train_config['float32_matmul_precision'])
+    torch.set_float32_matmul_precision(cfg.float32_matmul_precision)
 
     trainer = Trainer(
-    #     limit_train_batches = 400,  # for validating code before actual training
-        log_every_n_steps = 100,
+        log_every_n_steps=100,
         num_sanity_val_steps=0,
-        accelerator = 'gpu',
-        precision=train_config["trainer_precision"],
-        # max_epochs=100,
+        accelerator='gpu',
+        precision=cfg.trainer_precision,
         callbacks=callbacks,
         logger=tb_logger,
-        val_check_interval=train_config["val_check_interval"]
+        val_check_interval=cfg.val_check_interval
     )
 
     trainer.fit(
         pl_model, train_loader, val_loader,
-        ckpt_path = path_to_continue_checkpoint
+        ckpt_path=path_to_continue_checkpoint
     )
 
 
-    
 if __name__ == "__main__":
-    args = parse_args()
-    train_config = read_json(args.train_config)
-    _setup_logging(train_config)
-    main(train_config)
+    main()

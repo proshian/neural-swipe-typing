@@ -1,2 +1,0 @@
-requests==2.31.0  # for ./src/downloaders scripts only
-gdown==5.2.0  # for ./src/downloaders scripts only

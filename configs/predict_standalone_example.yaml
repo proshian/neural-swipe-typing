@@ -1,0 +1,33 @@
+defaults:
+  - encoder: transformer_v1
+  - decoder: transformer_v1
+  - swipe_point_embedder: separate_traj_and_nearest__6_coord
+  - feature_extractor: traj_and_nearest
+  - _self_
+
+num_classes: 35
+max_out_seq_len: 35
+d_model: 128
+
+grid_name: default
+grids_path: ./data/data_preprocessed/gridname_to_grid.json
+trajectory_features_statistics_path: ./data/data_preprocessed/trajectory_features_statistics.json
+bounding_boxes_path: ./data/data_preprocessed/key_bounding_boxes.json
+keyboard_tokenizer_path: ./tokenizers/keyboard/ru.json
+vocab_path: ./data/data_preprocessed/voc.txt
+
+model_weights_path: ???
+output_path: ./results/predictions/pred.pkl
+
+data_path: ./data/data_preprocessed/valid.jsonl
+
+device: cpu
+
+use_vocab_for_generation: true
+generator:
+  name: beam
+  params:
+    max_steps_n: 35
+    beamsize: 6
+    normalization_factor: 0.5
+    return_hypotheses_n: null

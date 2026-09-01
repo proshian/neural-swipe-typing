@@ -1,0 +1,20 @@
+# Path to saved train config (provides all architecture + data paths + other settings)
+train_config_path: ???
+
+model_weights_path: ???
+
+data_path: ./data/data_preprocessed/valid.jsonl
+
+output_path: null
+
+device: cpu
+num_workers: 4
+use_vocab_for_generation: true
+
+generator:
+  name: beam
+  params:
+    max_steps_n: 35
+    beamsize: 6
+    normalization_factor: 0.5
+    return_hypotheses_n: null

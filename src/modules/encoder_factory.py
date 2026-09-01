@@ -9,61 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
-class ConformerEncoderAdapter(nn.Module):
-    """
-    Adapter to make torchaudio.models.Conformer compatible with our encoder interface.
-
-    Our interface: encoder(x, src_key_padding_mask) -> encoded
-    - x shape: (T, B, D) where T=seq_len, B=batch, D=d_model
-    - src_key_padding_mask: (B, T) boolean tensor (True means padded position)
-
-    Conformer interface: conformer(input, lengths) -> (output, output_lengths)
-    - input shape: (B, T, D)
-    - lengths: (B,) integer tensor (number of valid frames per batch element)
-    - Returns: (output_frames, output_lengths)
-    """
-
-    def __init__(self, conformer: nn.Module):
-        super().__init__()
-        self.conformer = conformer
-
-    def forward(self, x: torch.Tensor, src_key_padding_mask: torch.Tensor | None = None) -> torch.Tensor:
-        """
-        Forward pass that adapts our interface to Conformer's interface.
-
-        Arguments:
-        ----------
-        x: torch.Tensor
-            Input tensor with shape (T, B, D)
-        src_key_padding_mask: torch.Tensor | None
-            Boolean mask with shape (B, T), True means pad. If None, assumes no padding.
-
-        Returns:
-        --------
-        encoded: torch.Tensor
-            Encoded tensor with shape (T, B, D)
-        """
-        # Transpose: (T, B, D) -> (B, T, D)
-        x = x.transpose(0, 1)
-
-        if src_key_padding_mask is None:
-            # No padding mask provided - assume all sequences are full length
-            # lengths: (B,) where each value is the full sequence length T
-            lengths = torch.full((x.size(0),), x.size(1), dtype=torch.long, device=x.device)
-        else:
-            # Convert boolean padding mask to integer lengths
-            # src_key_padding_mask: (B, T) where True means padded
-            # We need lengths: (B,) number of valid (non-padded) frames
-            # ~src_key_padding_mask gives us True for valid positions
-            # .sum(dim=1) counts valid positions for each batch element
-            lengths = (~src_key_padding_mask).sum(dim=1).long()
-
-        # Call conformer (returns (output, output_lengths))
-        output, _ = self.conformer(x, lengths)
-
-        # Transpose back: (B, T, D) -> (T, B, D)
-        return output.transpose(0, 1)
+from modules.conformer import Conformer
 
 
 def _create_transformer_v1_encoder(
@@ -72,7 +18,7 @@ def _create_transformer_v1_encoder(
     device: str | torch.device | None = None
 ) -> nn.TransformerEncoder:
     """
-    Creates a standard Transformer encoder matching the original v1 implementation.
+    Creates a standard Transformer encoder.
 
     Arguments:
     ----------
@@ -131,7 +77,7 @@ def _create_conformer_encoder(
     device: str | torch.device | None = None
 ) -> nn.Module:
     """
-    Creates a Conformer encoder with adapter for interface compatibility.
+    Creates a Conformer encoder
 
     Arguments:
     ----------
@@ -144,7 +90,6 @@ def _create_conformer_encoder(
         - num_layers: Number of Conformer layers (default: 4)
         - depthwise_conv_kernel_size: Kernel size for depthwise convolution (default: 31)
         - dropout: Dropout probability (default: 0.0)
-        - use_group_norm: Use GroupNorm instead of BatchNorm (default: False)
         - convolution_first: Apply convolution before attention (default: False)
     device: str | torch.device | None
         Device to create the encoder on
@@ -152,48 +97,36 @@ def _create_conformer_encoder(
     Returns:
     --------
     encoder: nn.Module
-        ConformerEncoderAdapter wrapping torchaudio.models.Conformer
+        Conformer
     """
     DEFAULT_NUM_HEADS = 4
     DEFAULT_FFN_DIM = 128
     DEFAULT_NUM_LAYERS = 4
     DEFAULT_DEPTHWISE_CONV_KERNEL_SIZE = 31
     DEFAULT_DROPOUT = 0.0
-    DEFAULT_USE_GROUP_NORM = False
     DEFAULT_CONVOLUTION_FIRST = False
-
-    try:
-        import torchaudio.models as ta_models
-    except ImportError:
-        raise ImportError(
-            "torchaudio is required for Conformer encoder. "
-            "Install it with: pip install torchaudio"
-        )
 
     num_heads = params.get("num_heads", DEFAULT_NUM_HEADS)
     ffn_dim = params.get("ffn_dim", DEFAULT_FFN_DIM)
     num_layers = params.get("num_layers", DEFAULT_NUM_LAYERS)
     depthwise_conv_kernel_size = params.get("depthwise_conv_kernel_size", DEFAULT_DEPTHWISE_CONV_KERNEL_SIZE)
     dropout = params.get("dropout", DEFAULT_DROPOUT)
-    use_group_norm = params.get("use_group_norm", DEFAULT_USE_GROUP_NORM)
     convolution_first = params.get("convolution_first", DEFAULT_CONVOLUTION_FIRST)
 
-    conformer = ta_models.Conformer(
+    conformer = Conformer(
         input_dim=d_model,
         num_heads=num_heads,
         ffn_dim=ffn_dim,
         num_layers=num_layers,
         depthwise_conv_kernel_size=depthwise_conv_kernel_size,
         dropout=dropout,
-        use_group_norm=use_group_norm,
         convolution_first=convolution_first,
     )
 
     if device is not None:
         conformer = conformer.to(device)
 
-    # Wrap in adapter to match our encoder interface
-    return ConformerEncoderAdapter(conformer)
+    return conformer
 
 
 def encoder_factory(
