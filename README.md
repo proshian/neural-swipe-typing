@@ -356,8 +356,8 @@ uv run -m src.utils.ckpt_to_pt --ckpt-path checkpoints --out-path model_states
 
 ## Yandex cup 2023 results
 * [task](./docs_and_assets/yandex_cup/task/task.md)
-* [submission reproduction](./docs_and_assets/yandex_cup/submission_reproduciton_instrucitons.md). 
 * [leaderboard](./docs_and_assets/yandex_cup/leaderboard.md)
+* To reproduce the submission, check out the [`submission-reproduction` branch](https://github.com/proshian/neural-swipe-typing/tree/submission-reproduction) and follow the instructions in its README.md.
 
 
 # Documentation
