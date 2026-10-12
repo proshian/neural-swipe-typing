@@ -3,8 +3,8 @@ revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "(python_full_version >= '3.14' and sys_platform == 'linux') or (python_full_version >= '3.14' and sys_platform == 'win32')",
-    "(python_full_version < '3.14' and sys_platform == 'linux') or (python_full_version < '3.14' and sys_platform == 'win32')",
     "python_full_version >= '3.14' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "(python_full_version < '3.14' and sys_platform == 'linux') or (python_full_version < '3.14' and sys_platform == 'win32')",
     "python_full_version < '3.14' and sys_platform != 'linux' and sys_platform != 'win32'",
 ]
 
@@ -1909,7 +1909,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=3.0.0" },
     { name = "requests", marker = "extra == 'data-obtaining'", specifier = ">=2.32.5" },
     { name = "tabulate", specifier = ">=0.9.0" },
-    { name = "tensorboard", specifier = ">=2.20.0" },
+    { name = "tensorboard", specifier = ">=2.21.0" },
     { name = "torch", marker = "sys_platform != 'linux' and sys_platform != 'win32'", specifier = ">=2.13.0" },
     { name = "torch", marker = "sys_platform == 'linux' or sys_platform == 'win32'", specifier = ">=2.13.0", index = "https://download.pytorch.org/whl/cu126" },
     { name = "torchmetrics", marker = "extra == 'training'", specifier = ">=1.8.2" },
@@ -3233,7 +3233,7 @@ wheels = [
 
 [[package]]
 name = "tensorboard"
-version = "2.20.0"
+version = "2.21.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "absl-py" },
@@ -3248,7 +3248,7 @@ dependencies = [
     { name = "werkzeug" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9c/d9/a5db55f88f258ac669a92858b70a714bbbd5acd993820b41ec4a96a4d77f/tensorboard-2.20.0-py3-none-any.whl", hash = "sha256:9dc9f978cb84c0723acf9a345d96c184f0293d18f166bb8d59ee098e6cfaaba6", size = 5525680, upload-time = "2025-07-17T19:20:49.638Z" },
+    { url = "https://files.pythonhosted.org/packages/37/4b/cd2eec9642781a8f5b2fb9994e3933a7b259ab18e9d49aeede9b5acf6311/tensorboard-2.21.0-py3-none-any.whl", hash = "sha256:7279316dcb6bd5bc391d623dea841531299cde1887310e8133bc34a996d32255", size = 5516204, upload-time = "2026-06-29T20:48:04.472Z" },
 ]
 
 [[package]]

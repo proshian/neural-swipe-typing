@@ -1,5 +1,0 @@
-/predictions/*
-/trained_models
-/checkpoints
-evaluation_results.csv
-evaluation_results*.csv

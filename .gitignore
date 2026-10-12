@@ -205,3 +205,4 @@ pyrightconfig.json
 curves/
 lightning_logs/
 experiments/
+outputs/
