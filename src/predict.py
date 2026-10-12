@@ -48,6 +48,7 @@ import os
 import json
 import pickle
 import argparse
+import multiprocessing
 from dataclasses import dataclass, asdict
 
 
@@ -85,6 +86,27 @@ class Prediction:
 def get_vocab(vocab_path: str) -> List[str]:
     with open(vocab_path, 'r', encoding = "utf-8") as f:
         return f.read().splitlines()
+
+
+_worker_state = None
+
+
+def _init_worker(word_generator, generator_call_kwargs, np_data) -> None:
+    global _worker_state
+    # Limit torch to one thread per worker: the worker processes already
+    # provide the parallelism. By default every worker would start one torch
+    # thread per CPU core, so N workers would run N * n_cores threads on
+    # n_cores cores. The threads then fight over the CPU, and prediction
+    # becomes ~10x slower than in a single process.
+    torch.set_num_threads(1)
+    _worker_state = (word_generator, generator_call_kwargs, np_data)
+
+
+def _predict_by_idx(i: int) -> Tuple[int, List[Tuple[float, str]]]:
+    word_generator, generator_call_kwargs, np_data = _worker_state
+    traj_feats, kb_tokens = (torch.from_numpy(arr) for arr in np_data[i])
+    pred = word_generator(traj_feats, kb_tokens, **generator_call_kwargs)
+    return i, pred
 
 
 class Predictor:
@@ -179,16 +201,40 @@ class Predictor:
         preds = [None] * len(dataset)
 
         data = [(i, (traj_feats, kb_tokens))
-                for i, ((traj_feats, kb_tokens, _), _) in enumerate(dataset)]     
-        
+                for i, ((traj_feats, kb_tokens, _), _) in enumerate(dataset)]
+
         if num_workers <= 0:
 
             for i, pred in tqdm(map(self._predict_example, data), total=len(dataset)):
                 preds[i] = pred
             return preds
-        
-        with ProcessPoolExecutor(num_workers) as executor:
-            for i, pred in tqdm(executor.map(self._predict_example, data), total=len(dataset)):
+
+        # Notes on how the worker pool is set up:
+        #
+        # * Workers are created with 'spawn' (the default on Windows), not
+        #   Linux's default 'fork'. A spawned worker starts as a fresh process
+        #   instead of inheriting the parent's state, which is more robust.
+        #   E.g. a forked worker hangs if it uses torch's OpenMP threads that
+        #   the parent had already started.
+        #
+        # * The word generator and all inputs are passed to each worker once,
+        #   through `initializer`. Each task then sends only an example index,
+        #   so the model isn't pickled again for every example.
+        #
+        # * Inputs are passed as numpy arrays, not torch tensors. torch
+        #   shares each tensor sent to another process through its own open
+        #   file descriptor. With thousands of tensors this exceeds the
+        #   open-file limit (`ulimit -n`) and fails with "Too many open
+        #   files". Numpy arrays are just copied, so they open no files.
+        np_data = [(traj_feats.numpy(), kb_tokens.numpy())
+                   for _, (traj_feats, kb_tokens) in data]
+        with ProcessPoolExecutor(
+                num_workers,
+                mp_context=multiprocessing.get_context('spawn'),
+                initializer=_init_worker,
+                initargs=(self.word_generator, self.generator_call_kwargs, np_data)
+                ) as executor:
+            for i, pred in tqdm(executor.map(_predict_by_idx, range(len(data))), total=len(dataset)):
                 preds[i] = pred
 
         return preds

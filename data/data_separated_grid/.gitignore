@@ -28,3 +28,5 @@
 /weights_fname_to_mrr.pkl
 /med_getter.pkl
 /test_raw_pred___best_model__2023_11_04__18_31_37__0.02530_default_switch_2.pt__best_model__2023_11_05__07_55_13__0.02516_extra_switch_2__with_pad_cutting.pt.pkl
+/gridname_to_grid__fixed.json
+/train_filtered.jsonl

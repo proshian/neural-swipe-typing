@@ -443,7 +443,7 @@ if __name__ == "__main__":
         extra_idxs)
     
 
-    baseline_preds = load_baseline_preds(r"results\submissions\baseline.csv")
+    baseline_preds = load_baseline_preds("results/submissions/baseline.csv")
     full_preds = append_preds(full_preds, baseline_preds, limit = 4)
 
     create_submission(full_preds,

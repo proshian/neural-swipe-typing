@@ -28,7 +28,7 @@
         "generator": "beam",
         "generator_call_kwargs":
         {
-            "max_steps_n": 23,
+            "max_steps_n": 35,
             "return_hypotheses_n": 7,
             "beamsize": 6,
             "normalization_factor": 0.5
